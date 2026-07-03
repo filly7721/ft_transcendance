@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #06060f;
+  --color-foreground: #c8c8ff;
+
+  --color-neon-cyan: #00f5ff;
+  --color-neon-magenta: #ff00cc;
+  --color-neon-green: #00ff88;
+  --color-neon-yellow: #ffe000;
+  --color-neon-orange: #ff6b00;
+  --color-neon-red: #ff2244;
+
+  --color-arcade-bg: #06060f;
+  --color-arcade-panel: #0c0c1e;
+  --color-arcade-card: #0f0f22;
+  --color-arcade-border: #1e1e4a;
+  --color-arcade-muted: #4a4a8a;
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-arcade: var(--font-press-start);
+
+  --animate-blink: blink 1s step-end infinite;
+  --animate-flicker: flicker 7s infinite;
+  --animate-glow-pulse: glow-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes flicker {
+  0%, 91%, 93%, 95%, 100% { opacity: 1; }
+  92% { opacity: 0.6; }
+  94% { opacity: 0.85; }
+  96% { opacity: 0.4; }
+  97% { opacity: 1; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.4); }
+}
+
+/* Neon text glow utilities */
+@utility glow-cyan {
+  color: #00f5ff;
+  text-shadow: 0 0 8px #00f5ff, 0 0 24px #00f5ff80;
+}
+@utility glow-magenta {
+  color: #ff00cc;
+  text-shadow: 0 0 8px #ff00cc, 0 0 24px #ff00cc80;
+}
+@utility glow-green {
+  color: #00ff88;
+  text-shadow: 0 0 8px #00ff88, 0 0 24px #00ff8880;
+}
+@utility glow-yellow {
+  color: #ffe000;
+  text-shadow: 0 0 8px #ffe000, 0 0 24px #ffe00080;
+}
+@utility glow-orange {
+  color: #ff6b00;
+  text-shadow: 0 0 8px #ff6b00, 0 0 24px #ff6b0080;
+}
+@utility glow-red {
+  color: #ff2244;
+  text-shadow: 0 0 8px #ff2244, 0 0 24px #ff224480;
+}
+
+/* Neon box glow utilities */
+@utility box-glow-cyan {
+  box-shadow: 0 0 10px #00f5ff30, 0 0 30px #00f5ff15;
+}
+@utility box-glow-magenta {
+  box-shadow: 0 0 10px #ff00cc30, 0 0 30px #ff00cc15;
+}
+
+:root {
+  --background: #06060f;
+  --foreground: #c8c8ff;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-mono), monospace;
+  position: relative;
+}
+
+/* CRT scanline overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.1) 3px,
+    rgba(0, 0, 0, 0.1) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: #06060f; }
+::-webkit-scrollbar-thumb { background: #1e1e4a; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #00f5ff30; }
