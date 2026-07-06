@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ButtonLink } from "@/components/Button";
 
 type Session = { username: string } | null;
 
@@ -10,12 +10,7 @@ export default function UserMenu() {
 
   if (!session) {
     return (
-      <Link
-        href="/login"
-        className="border border-neon-yellow/40 px-3 py-1.5 font-arcade text-[10px] text-neon-yellow transition-all hover:border-neon-yellow hover:shadow-[0_0_8px_#ffe00040]"
-      >
-        LOGIN
-      </Link>
+      <ButtonLink href="/login">LOGIN</ButtonLink>
     );
   }
 
