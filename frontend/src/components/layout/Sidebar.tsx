@@ -18,9 +18,17 @@ export default function Sidebar() {
         {/* TODO: add LEADERBOARD and PROFILE links once those pages exist */}
       </Section>
 
-      <Section title="GAMES">
+      <Section title="LOBBY">
         {games.map((game) => (
           <NavLink key={game.slug} href={gameHref(game)} label={game.title} />
+        ))}
+      </Section>
+
+      {/* TEMPORARY: direct board previews for development — remove once real
+          game sessions exist at /lobby/<game>/[room-code] */}
+      <Section title="GAME PREVIEW">
+        {games.map((game) => (
+          <NavLink key={game.slug} href={`/game/${game.slug}`} label={game.title} />
         ))}
       </Section>
 
