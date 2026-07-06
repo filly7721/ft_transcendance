@@ -86,20 +86,13 @@ function MiniBoard({ cells, state }: { cells: Mark[][]; state: BoardState }) {
   );
 }
 
-export default function SuperTicTacToe() {
+// Static demo board — replaced by the real game once gameplay lands
+export default function SuperTttDemo() {
   const xWins = outerBoard.filter((b) => b === 'X').length;
   const oWins = outerBoard.filter((b) => b === 'O').length;
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12 flex flex-col items-center gap-10">
-      {/* Title */}
-      <div className="text-center">
-        <h1 className="font-arcade text-2xl glow-magenta animate-glow-pulse mb-2">SUPER TTT</h1>
-        <p className="text-arcade-muted font-mono text-xs uppercase tracking-widest">
-          Win 3 boards in a row to claim victory
-        </p>
-      </div>
-
+    <div className="flex flex-col items-center gap-10">
       {/* Score bar */}
       <div className="flex items-center gap-8 border border-arcade-border bg-arcade-panel px-8 py-4">
         <div className="text-center">
@@ -125,16 +118,6 @@ export default function SuperTicTacToe() {
         {miniBoards.map((cells, i) => (
           <MiniBoard key={i} cells={cells} state={boardStates[i]} />
         ))}
-      </div>
-
-      {/* How to play */}
-      <div className="border border-arcade-border/50 bg-arcade-card px-6 py-4 text-xs font-mono text-arcade-muted max-w-sm w-full">
-        <div className="font-arcade text-xs text-arcade-muted mb-3">HOW TO PLAY</div>
-        <ul className="space-y-1.5 text-foreground/60">
-          <li>▸ Win a mini board to claim it on the outer grid</li>
-          <li>▸ Your move sends your opponent to that board</li>
-          <li>▸ Win 3 boards in a row to win the game</li>
-        </ul>
       </div>
     </div>
   );
