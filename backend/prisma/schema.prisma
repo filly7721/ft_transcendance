@@ -1,0 +1,36 @@
+// Prisma schema for ft_transcendence backend
+// Auth scope only: the User model is the minimal set of fields required by
+// the register / login / JWT feature. Other features (avatar upload, roles,
+// friends, ELO, game stats...) belong to other modules and must be added by
+// the teammate responsible for them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // The team convention (see .env.example) is PostgreSQL in development and
+  // production. Keep it here so everyone runs the same engine.
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A user account. Created through /auth/register.
+model User {
+  /// Auto-incremented primary key.
+  id           Int      @id @default(autoincrement())
+  /// Unique email, used as the login identifier together with the password.
+  email        String   @unique
+  /// Unique public username (42-style login).
+  login        String   @unique
+  /// Display name shown in the UI. Defaults to the login on registration.
+  displayName  String   @default("Player")
+  /// bcrypt hash of the password. NEVER returned by any endpoint.
+  passwordHash String
+  /// Creation timestamp.
+  createdAt    DateTime @default(now())
+  /// Last-update timestamp, managed by Prisma.
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
