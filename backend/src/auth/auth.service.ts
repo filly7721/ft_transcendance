@@ -1,6 +1,8 @@
+import { randomBytes, createHash } from 'crypto';
 import {
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -8,6 +10,9 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 /**
@@ -18,6 +23,9 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
  * faster.
  */
 export const BCRYPT_ROUNDS = 12;
+
+/** How long a password-reset token stays valid. */
+export const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * Public user shape returned by every auth response.
@@ -92,10 +100,115 @@ export class AuthService {
     return { user: this.stripPassword(user), accessToken };
   }
 
+  /**
+   * Request a password reset.
+   *
+   * ALWAYS returns the same shape (200) whether or not the email exists, to
+   * prevent user enumeration. When the email matches an account:
+   *  - any previously issued, still-valid tokens for that user are cleaned up,
+   *  - a fresh high-entropy random token is generated,
+   *  - its SHA-256 hash is stored (so a DB leak cannot be reused),
+   *  - the raw token is returned in DEV mode only (NODE_ENV !== 'production').
+   *    In production the raw token would be sent by email instead; the email
+   *    transport is out of scope for the auth feature itself.
+   */
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+  ): Promise<{ message: string; resetToken?: string }> {
+    const user = await this.users.findByEmail(dto.email);
+
+    // Always respond the same way to avoid leaking which emails are registered.
+    const generic = { message: 'if the email exists, a reset link has been sent' };
+
+    if (!user) {
+      return generic;
+    }
+
+    // Housekeeping: remove expired tokens for this user.
+    await this.users.deleteExpiredResetTokens(user.id);
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+
+    await this.users.createResetToken(user.id, tokenHash, expiresAt);
+
+    if (process.env.NODE_ENV === 'production') {
+      // In prod, email the link containing the raw token. The frontend would
+      // render /reset-password?token=... and POST it back to /auth/reset-password.
+      return generic;
+    }
+
+    // Dev: return the raw token so the flow is testable without an SMTP setup.
+    return { ...generic, resetToken: rawToken };
+  }
+
+  /**
+   * Reset a password using a token issued by forgotPassword.
+   *
+   * Validates the token (exists, not expired, not already used), hashes the
+   * new password, updates the user, and marks the token as used (single-use).
+   * Throws 401 for any invalid / expired / reused token, with a generic
+   * message.
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const tokenHash = this.hashToken(dto.token);
+    const token = await this.users.findValidResetToken(tokenHash);
+
+    const isInvalid =
+      !token ||
+      token.usedAt !== null ||
+      token.expiresAt.getTime() < Date.now();
+
+    if (isInvalid) {
+      throw new UnauthorizedException('invalid or expired reset token');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    await this.users.updatePassword(token.userId, passwordHash);
+    await this.users.markResetTokenUsed(token.id);
+
+    return { message: 'password updated' };
+  }
+
+  /**
+   * Delete the authenticated user's account.
+   *
+   * Requires the current password to be re-confirmed: a stolen JWT alone must
+   * never be enough to delete an account. On success the user row (and, via
+   * cascade, their reset tokens) is removed.
+   *
+   * Note: the JWT is stateless, so the token issued at login technically
+   * remains valid until it expires. Subsequent calls to guarded endpoints
+   * will fail because the user no longer exists (e.g. /users/me returns 401).
+   */
+  async deleteAccount(
+    userId: number,
+    dto: DeleteAccountDto,
+  ): Promise<{ message: string }> {
+    const user = await this.users.findById(userId);
+    if (!user) {
+      throw new NotFoundException('user not found');
+    }
+
+    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordValid) {
+      throw new UnauthorizedException('invalid credentials');
+    }
+
+    await this.users.delete(userId);
+    return { message: 'account deleted' };
+  }
+
   /** Sign a JWT for the given user. */
   private async signTokenFor(userId: number, login: string): Promise<string> {
     const payload: JwtPayload = { sub: userId, login };
     return this.jwt.signAsync(payload);
+  }
+
+  /** SHA-256 hash of a raw reset token (deterministic, lookable by index). */
+  private hashToken(rawToken: string): string {
+    return createHash('sha256').update(rawToken).digest('hex');
   }
 
   /** Remove `passwordHash` from a user entity. */

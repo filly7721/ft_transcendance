@@ -1,4 +1,10 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -29,8 +35,11 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   async me(@Req() req: AuthenticatedRequest) {
     const user = await this.users.findById(req.user.id);
+    // The JWT is stateless, so a token issued before the account was deleted
+    // is still signature-valid. If the user no longer exists, reject the
+    // request here so deleted accounts cannot keep using the API.
     if (!user) {
-      return null;
+      throw new UnauthorizedException('account no longer exists');
     }
     // Never leak the password hash.
     const { passwordHash: _passwordHash, ...safeUser } = user;

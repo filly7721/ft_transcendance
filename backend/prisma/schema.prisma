@@ -32,5 +32,34 @@ model User {
   /// Last-update timestamp, managed by Prisma.
   updatedAt    DateTime @updatedAt
 
+  /// Password-reset tokens issued for this user. Deleted with the user.
+  passwordResetTokens PasswordResetToken[]
+
   @@map("users")
+}
+
+/// A single-use password-reset token.
+///
+/// The token sent to the user (by email, or returned in dev mode) is a long
+/// random string. We only store its SHA-256 hash so a database leak cannot
+/// be used to reset passwords. Tokens expire (default 15 min) and are
+/// single-use (`usedAt` is set once consumed).
+model PasswordResetToken {
+  /// Auto-incremented primary key.
+  id        Int      @id @default(autoincrement())
+  /// The user this token belongs to.
+  userId    Int
+  /// SHA-256 hash of the raw token. Looked up by this column on reset.
+  tokenHash String   @unique
+  /// When the token expires. Checked on reset; old tokens are ignored.
+  expiresAt DateTime
+  /// Set when the token is consumed. Null = not used yet.
+  usedAt    DateTime?
+  /// Creation timestamp.
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
