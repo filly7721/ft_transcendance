@@ -5,3 +5,7 @@ frontend/.next/
 backend/dist/
 .env
 .env.local
+
+# SQLite local dev database (created by `prisma migrate dev`)
+*.db
+*.db-journal

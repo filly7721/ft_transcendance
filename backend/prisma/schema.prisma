@@ -1,0 +1,68 @@
+// Prisma schema for ft_transcendence backend
+// Auth scope only: the User model is the minimal set of fields required by
+// the register / login / JWT feature. Other features (avatar upload, roles,
+// friends, ELO, game stats...) belong to other modules and must be added by
+// the teammate responsible for them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Local development uses SQLite (zero-setup, file-based) so the backend
+  // boots without a running Postgres instance — see backendref.md §3.
+  // Production should override this to "postgresql" via the same schema + a
+  // matching DATABASE_URL; both providers are wire-compatible with the
+  // models below (no enums, no native arrays, no @db. extensions).
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A user account. Created through /auth/register.
+model User {
+  /// Auto-incremented primary key.
+  id           Int      @id @default(autoincrement())
+  /// Unique email, used as the login identifier together with the password.
+  email        String   @unique
+  /// Unique public username (42-style login).
+  login        String   @unique
+  /// Display name shown in the UI. Defaults to the login on registration.
+  displayName  String   @default("Player")
+  /// bcrypt hash of the password. NEVER returned by any endpoint.
+  passwordHash String
+  /// Creation timestamp.
+  createdAt    DateTime @default(now())
+  /// Last-update timestamp, managed by Prisma.
+  updatedAt    DateTime @updatedAt
+
+  /// Password-reset tokens issued for this user. Deleted with the user.
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+/// A single-use password-reset token.
+///
+/// The token sent to the user (by email, or returned in dev mode) is a long
+/// random string. We only store its SHA-256 hash so a database leak cannot
+/// be used to reset passwords. Tokens expire (default 15 min) and are
+/// single-use (`usedAt` is set once consumed).
+model PasswordResetToken {
+  /// Auto-incremented primary key.
+  id        Int      @id @default(autoincrement())
+  /// The user this token belongs to.
+  userId    Int
+  /// SHA-256 hash of the raw token. Looked up by this column on reset.
+  tokenHash String   @unique
+  /// When the token expires. Checked on reset; old tokens are ignored.
+  expiresAt DateTime
+  /// Set when the token is consumed. Null = not used yet.
+  usedAt    DateTime?
+  /// Creation timestamp.
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
