@@ -7,17 +7,19 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { LobbiesModule } from './lobbies/lobbies.module';
 import { validateEnv } from './config/env.validation';
 
 /**
  * Root application module.
  *
  * Module order is intentional:
- *  - ConfigModule: global env access (already present in the scaffold).
- *  - ThrottlerModule: global rate limiting; the AuthController narrows the
- *    limits on /auth/register and /auth/login.
+ *  - ConfigModule: global env access (validates process.env at boot).
+ *  - ThrottlerModule: global rate limiting; the AuthController and
+ *    LobbiesController narrow the limits on specific routes.
  *  - PrismaModule: global DB access.
  *  - UsersModule + AuthModule: the auth feature.
+ *  - LobbiesModule: the lobby-rooms feature.
  *
  * The ThrottlerGuard is registered as an APP_GUARD so every route is
  * rate-limited by default; specific routes override the limit with @Throttle.
@@ -31,6 +33,7 @@ import { validateEnv } from './config/env.validation';
     PrismaModule,
     UsersModule,
     AuthModule,
+    LobbiesModule,
   ],
   controllers: [AppController],
   providers: [

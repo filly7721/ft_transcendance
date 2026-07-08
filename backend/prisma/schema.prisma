@@ -1,8 +1,7 @@
 // Prisma schema for ft_transcendence backend
-// Auth scope only: the User model is the minimal set of fields required by
-// the register / login / JWT feature. Other features (avatar upload, roles,
-// friends, ELO, game stats...) belong to other modules and must be added by
-// the teammate responsible for them.
+// Auth + Lobbies scope: the User model is the minimal set of fields required
+// by the register / login / JWT feature, plus the Lobby + LobbyMember models
+// that back the lobby-rooms feature.
 
 generator client {
   provider = "prisma-client-js"
@@ -38,6 +37,11 @@ model User {
   /// Password-reset tokens issued for this user. Deleted with the user.
   passwordResetTokens PasswordResetToken[]
 
+  /// Lobbies this user is the host of (creator = host).
+  hostedLobbies    Lobby[]        @relation("LobbyHost")
+  /// Lobbies this user has joined (including ones they host).
+  lobbyMemberships LobbyMember[]  @relation("LobbyMembers")
+
   @@map("users")
 }
 
@@ -65,4 +69,67 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+/// A lobby room for a game. Created via `POST /lobbies`.
+///
+/// The `id` IS the room code: 9 random digits in the format "xxx-xxx-xxx"
+/// (e.g. "482-137-905"). It is both the primary key and the secret a player
+/// enters to join via "JOIN BY CODE" — so it must not be guessable.
+/// That is why the code is generated with `crypto.randomInt`, not `Math.random`.
+model Lobby {
+  /// Room code, format "xxx-xxx-xxx". Primary key AND join secret.
+  id          String   @id
+  /// Game slug this lobby belongs to (e.g. "minesweeper").
+  game        String
+  /// Human-readable lobby name shown in the browser.
+  name        String
+  /// User who created the lobby (the host).
+  hostId      Int
+  /// Maximum players the lobby accepts (2 or 4 per the frontend form).
+  maxPlayers  Int
+  /// JSON-stringified `Record<string,string>` of lobby options
+  /// (e.g. `{"mode":"CASUAL"}`). Stored as text because SQLite has no native
+  /// JSON column; Postgres would store it the same way with this schema.
+  options     String   @default("{}")
+  /// Lifecycle: WAITING (open) | IN_PROGRESS | FINISHED | ABANDONED.
+  /// Kept as a plain string (not a Prisma enum) so the schema is wire-
+  /// compatible with both SQLite and Postgres without extra setup.
+  status      String   @default("WAITING")
+  /// Creation timestamp.
+  createdAt   DateTime @default(now())
+  /// Last-update timestamp, managed by Prisma.
+  updatedAt   DateTime @updatedAt
+
+  /// The host (creator). Resolves to a User row.
+  host        User     @relation("LobbyHost", fields: [hostId], references: [id])
+  /// Everyone in the lobby, including the host (host is added as the first
+  /// member on creation, so `players` starts at 1).
+  members     LobbyMember[]
+
+  @@index([game])
+  @@index([hostId])
+  @@map("lobbies")
+}
+
+/// A user's membership in a lobby. The lobby's current player count is
+/// `COUNT(*)` of rows with that `lobbyId`.
+model LobbyMember {
+  /// Auto-incremented primary key.
+  id        Int      @id @default(autoincrement())
+  /// The lobby this membership belongs to.
+  lobbyId   String
+  /// The user who joined.
+  userId    Int
+  /// When the user joined the lobby.
+  joinedAt  DateTime @default(now())
+
+  lobby     Lobby    @relation(fields: [lobbyId], references: [id], onDelete: Cascade)
+  user      User     @relation("LobbyMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// A user can only be a member of a given lobby once.
+  @@unique([lobbyId, userId])
+  @@index([lobbyId])
+  @@index([userId])
+  @@map("lobby_members")
 }
