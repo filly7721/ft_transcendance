@@ -60,7 +60,7 @@ export class LobbiesService {
    *     LobbyMember (so `players` starts at 1).
    *  3. Re-fetch with relations and return the serialized lobby.
    */
-  async create(hostId: number, dto: CreateLobbyDto): Promise<LobbyResponse> {
+  async create(hostId: string, dto: CreateLobbyDto): Promise<LobbyResponse> {
     const id = await this.generateUniqueRoomCode();
     const optionsJson = JSON.stringify(dto.options ?? {});
 
@@ -96,7 +96,7 @@ export class LobbiesService {
    * - Idempotent: if the user is already a member, returns the lobby without
    *   error (so a double-click or retry is safe).
    */
-  async join(userId: number, roomCode: string): Promise<LobbyResponse> {
+  async join(userId: string, roomCode: string): Promise<LobbyResponse> {
     const lobby = await this.prisma.lobby.findUnique({
       where: { id: roomCode },
       include: { members: true, host: true },

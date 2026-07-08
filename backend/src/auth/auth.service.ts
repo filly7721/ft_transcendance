@@ -177,7 +177,7 @@ export class AuthService {
    * will fail because the user no longer exists (e.g. /users/me returns 401).
    */
   async deleteAccount(
-    userId: number,
+    userId: string,
     dto: DeleteAccountDto,
   ): Promise<{ message: string }> {
     // Needs the hash to re-confirm the password before deletion.
@@ -196,7 +196,7 @@ export class AuthService {
   }
 
   /** Sign a JWT for the given user. */
-  private async signTokenFor(userId: number, login: string): Promise<string> {
+  private async signTokenFor(userId: string, login: string): Promise<string> {
     const payload: JwtPayload = { sub: userId, login };
     return this.jwt.signAsync(payload);
   }

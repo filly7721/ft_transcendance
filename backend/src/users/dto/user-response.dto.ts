@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsString } from 'class-validator';
+import { IsDateString, IsString } from 'class-validator';
 
 /**
  * Public user representation returned by every endpoint that exposes a user.
@@ -7,10 +7,11 @@ import { IsDateString, IsInt, IsString } from 'class-validator';
  * class so it can be reused with `ClassSerializerInterceptor` / OpenAPI later.
  *
  * `passwordHash` is structurally absent — it can never be serialized over HTTP.
+ * `id` is a UUID string (non-enumerable).
  */
 export class UserResponseDto {
-  @IsInt()
-  id!: number;
+  @IsString()
+  id!: string;
 
   @IsString()
   email!: string;

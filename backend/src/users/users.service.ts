@@ -31,6 +31,9 @@ export type SafeUser = Omit<User, 'passwordHash'>;
  * Note: service methods return the full entity (including `passwordHash`).
  * It is the responsibility of the caller (AuthService / controller) to strip
  * `passwordHash` before sending anything to the client.
+ *
+ * User IDs are UUID strings (non-enumerable). All `id` / `userId` parameters
+ * in this service are typed as `string`.
  */
 @Injectable()
 export class UsersService {
@@ -53,7 +56,7 @@ export class UsersService {
   }
 
   /** Find a user by id (public shape, no passwordHash). Returns null if not found. */
-  findById(id: number): Promise<SafeUser | null> {
+  findById(id: string): Promise<SafeUser | null> {
     return this.prisma.user.findUnique({
       where: { id },
       select: publicUserSelect,
@@ -79,7 +82,7 @@ export class UsersService {
   }
 
   /** Find a user by id INCLUDING the passwordHash. Auth-internal only. */
-  findByIdWithHash(id: number): Promise<User | null> {
+  findByIdWithHash(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
@@ -89,7 +92,7 @@ export class UsersService {
   }
 
   /** Update a user's password hash. `passwordHash` must already be hashed. */
-  updatePassword(id: number, passwordHash: string): Promise<User> {
+  updatePassword(id: string, passwordHash: string): Promise<User> {
     return this.prisma.user.update({
       where: { id },
       data: { passwordHash },
@@ -97,7 +100,7 @@ export class UsersService {
   }
 
   /** Delete a user by id. Cascades to their password-reset tokens. */
-  delete(id: number): Promise<User> {
+  delete(id: string): Promise<User> {
     return this.prisma.user.delete({ where: { id } });
   }
 
@@ -105,7 +108,7 @@ export class UsersService {
 
   /** Create a reset-token row. `tokenHash` must already be hashed (SHA-256). */
   createResetToken(
-    userId: number,
+    userId: string,
     tokenHash: string,
     expiresAt: Date,
   ): Promise<PasswordResetToken> {
@@ -130,7 +133,7 @@ export class UsersService {
   }
 
   /** Delete all expired tokens for a user (housekeeping). */
-  deleteExpiredResetTokens(userId: number): Promise<Prisma.BatchPayload> {
+  deleteExpiredResetTokens(userId: string): Promise<Prisma.BatchPayload> {
     return this.prisma.passwordResetToken.deleteMany({
       where: { userId, expiresAt: { lt: new Date() } },
     });
