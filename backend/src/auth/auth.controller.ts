@@ -4,11 +4,9 @@ import {
   Delete,
   HttpCode,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -16,11 +14,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-
-/** Shape of `req.user` after the JwtStrategy has validated the token. */
-interface AuthenticatedRequest extends Request {
-  user: { id: number; login: string };
-}
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../common/types/authenticated-user';
 
 /**
  * Auth endpoints.
@@ -66,7 +61,10 @@ export class AuthController {
   @Delete('account')
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 5 deletions / min / IP
-  deleteAccount(@Req() req: AuthenticatedRequest, @Body() dto: DeleteAccountDto) {
-    return this.auth.deleteAccount(req.user.id, dto);
+  deleteAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeleteAccountDto,
+  ) {
+    return this.auth.deleteAccount(user.id, dto);
   }
 }

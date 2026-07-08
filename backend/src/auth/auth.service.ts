@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import type { User } from '@prisma/client';
 import { UsersService } from '../users/users.service';
+import type { SafeUser } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -26,15 +28,6 @@ export const BCRYPT_ROUNDS = 12;
 
 /** How long a password-reset token stays valid. */
 export const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
-
-/**
- * Public user shape returned by every auth response.
- * `passwordHash` is stripped here and can never leak to the client.
- */
-export type SafeUser = Omit<
-  Awaited<ReturnType<UsersService['findById']>>,
-  'passwordHash'
->;
 
 /**
  * Standard auth response: the authenticated user + a fresh access token.
@@ -86,7 +79,8 @@ export class AuthService {
    * the password is wrong, to prevent user enumeration.
    */
   async login(dto: LoginDto): Promise<AuthResponse> {
-    const user = await this.users.findByEmail(dto.email);
+    // Needs the hash for bcrypt.compare — uses the internal hash-bearing lookup.
+    const user = await this.users.findByEmailWithHash(dto.email);
     if (!user) {
       throw new UnauthorizedException('invalid credentials');
     }
@@ -186,7 +180,8 @@ export class AuthService {
     userId: number,
     dto: DeleteAccountDto,
   ): Promise<{ message: string }> {
-    const user = await this.users.findById(userId);
+    // Needs the hash to re-confirm the password before deletion.
+    const user = await this.users.findByIdWithHash(userId);
     if (!user) {
       throw new NotFoundException('user not found');
     }
@@ -211,16 +206,8 @@ export class AuthService {
     return createHash('sha256').update(rawToken).digest('hex');
   }
 
-  /** Remove `passwordHash` from a user entity. */
-  private stripPassword(user: {
-    id: number;
-    email: string;
-    login: string;
-    displayName: string;
-    passwordHash: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }): SafeUser {
+  /** Remove `passwordHash` from a full user entity (auth-internal inputs). */
+  private stripPassword(user: User): SafeUser {
     const { passwordHash: _passwordHash, ...safe } = user;
     return safe;
   }

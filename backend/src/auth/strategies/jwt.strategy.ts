@@ -3,14 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 
-/**
- * Shape of the value attached to `req.user` by this strategy.
- */
-export interface JwtAuthenticatedUser {
-  id: number;
-  login: string;
-}
+/** Re-exported so existing imports keep working. */
+export type JwtAuthenticatedUser = AuthenticatedUser;
 
 /**
  * Passport-JWT strategy.
@@ -37,7 +33,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: JwtPayload): Promise<JwtAuthenticatedUser> {
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     return { id: payload.sub, login: payload.login };
   }
 }

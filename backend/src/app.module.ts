@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { validateEnv } from './config/env.validation';
 
 /**
  * Root application module.
@@ -23,7 +24,7 @@ import { AuthModule } from './auth/auth.module';
  */
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot([
       { ttl: 60_000, limit: 60 }, // global default: 60 requests / min / IP
     ]),

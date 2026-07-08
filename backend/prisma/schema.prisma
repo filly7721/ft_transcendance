@@ -9,9 +9,12 @@ generator client {
 }
 
 datasource db {
-  // The team convention (see .env.example) is PostgreSQL in development and
-  // production. Keep it here so everyone runs the same engine.
-  provider = "postgresql"
+  // Local development uses SQLite (zero-setup, file-based) so the backend
+  // boots without a running Postgres instance — see backendref.md §3.
+  // Production should override this to "postgresql" via the same schema + a
+  // matching DATABASE_URL; both providers are wire-compatible with the
+  // models below (no enums, no native arrays, no @db. extensions).
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 

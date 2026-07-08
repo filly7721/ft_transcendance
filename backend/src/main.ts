@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 
 /**
  * Bootstrap the NestJS application.
@@ -36,6 +37,10 @@ async function bootstrap(): Promise<void> {
   );
 
   app.setGlobalPrefix('api');
+
+  // Translate known Prisma errors (P2002 unique, P2025 not-found) into proper
+  // HTTP statuses globally, so services don't repeat try/catch boilerplate.
+  app.useGlobalFilters(new PrismaExceptionFilter());
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
