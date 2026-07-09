@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
+import { WsRateLimiter } from '../common/ws-auth';
 
 /**
  * Auth module.
@@ -16,6 +17,10 @@ import { UsersModule } from '../users/users.module';
  * - PassportModule with the default strategy set to 'jwt'.
  * - JwtModule configured asynchronously from the ConfigService so the secret
  *   and the expiry are read from the environment (never hardcoded).
+ * - WsRateLimiter: shared singleton so the per-IP WebSocket connection cap
+ *   is global across all game gateways.
+ *
+ * Exports JwtModule so the game gateways can verify tokens on WS connections.
  */
 @Module({
   imports: [
@@ -38,7 +43,7 @@ import { UsersModule } from '../users/users.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, JwtStrategy, WsRateLimiter],
+  exports: [AuthService, JwtModule, WsRateLimiter],
 })
 export class AuthModule {}

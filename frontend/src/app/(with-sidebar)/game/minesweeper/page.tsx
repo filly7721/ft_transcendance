@@ -1,22 +1,16 @@
-import MinesweeperDemo from "@/components/games/MinesweeperDemo";
-import Cell from "./components/Cell"
-import MinesweeperBoard from "./components/MinesweeperBoard";
-// Dedicated minesweeper game page — currently shows the static demo board.
-// TODO: build the real game here; multiplayer rooms will live at
-// /lobby/minesweeper/[room-code] and reuse the game component built for this page.
+import MinesweeperGame from "./components/MinesweeperGame";
+// Dedicated minesweeper game page — versus race against the backend's single
+// dev lobby (two browser tabs = two players).
+// TODO: multiplayer rooms will live at /lobby/minesweeper/[room-code] and
+// reuse the MinesweeperGame component built for this page.
 
-// - Fog enemy board; your board stays visible
-// - Enemy board appears on the right
-// - Left‑click = open, right‑click = flag
-// - Backend provides the map; same h/f/number logic
-// - Clicking a number assigns a random 1–6
-// - Basic click interactions (just show the button works)
-// - Add working timer
-// - Right‑click reduces bomb counter
-// - Clicking the face resets board + timer
+// - Enemy board appears on the right, fed by opponent:update events
+// - Left-click = open, right-click = flag
+// - Backend owns the map and validates every move
+// - TODO: working timer + mine counter
+// - TODO: clicking the face resets board + timer (needs a backend rematch event)
 
-
-export default function MinesweeperGame() {
+export default function MinesweeperGamePage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col items-center gap-8 px-6 py-12">
       <div className="text-center">
@@ -26,12 +20,7 @@ export default function MinesweeperGame() {
         </p>
       </div>
 
-      {/* <MinesweeperDemo /> */}
-      {/* yours to replace*/}
-      <div className="bg-arcade-card w-fit h-fit">
-        <MinesweeperBoard />
-      </div>
-
-      </div>
+      <MinesweeperGame />
+    </div>
   );
 }
