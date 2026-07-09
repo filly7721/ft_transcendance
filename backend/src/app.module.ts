@@ -8,6 +8,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { LobbiesModule } from './lobbies/lobbies.module';
+import { MinesweeperModule } from './minesweeper/minesweeper.module';
+import { SuperTttModule } from './superttt/superttt.module';
 import { validateEnv } from './config/env.validation';
 
 /**
@@ -16,10 +18,12 @@ import { validateEnv } from './config/env.validation';
  * Module order is intentional:
  *  - ConfigModule: global env access (validates process.env at boot).
  *  - ThrottlerModule: global rate limiting; the AuthController and
- *    LobbiesController narrow the limits on specific routes.
+ *    LobbiesController narrow the limits on specific routes. The WS
+ *    gateways use WsRateLimiter from AuthModule for socket-level limiting.
  *  - PrismaModule: global DB access.
  *  - UsersModule + AuthModule: the auth feature.
  *  - LobbiesModule: the lobby-rooms feature.
+ *  - MinesweeperModule + SuperTttModule: the two WS game gateways.
  *
  * The ThrottlerGuard is registered as an APP_GUARD so every route is
  * rate-limited by default; specific routes override the limit with @Throttle.
@@ -34,6 +38,8 @@ import { validateEnv } from './config/env.validation';
     UsersModule,
     AuthModule,
     LobbiesModule,
+    MinesweeperModule,
+    SuperTttModule,
   ],
   controllers: [AppController],
   providers: [
