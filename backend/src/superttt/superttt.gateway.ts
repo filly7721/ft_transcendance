@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
   MessageBody,
@@ -11,61 +12,63 @@ import {
 import { Namespace, Socket } from 'socket.io';
 import {
   GameSnapshot,
-  MoveOutcome,
   MovePayload,
   MoveResult,
   PlayerIndex,
   SuperTttEngine,
 } from './engine/superttt.engine';
+import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
 
 /**
- * The single Super Tic-Tac-Toe lobby. Two players (X vs O) play on a shared
- * authoritative engine; game rules live in SuperTttEngine.
+ * Super Tic-Tac-Toe WebSocket gateway.
+ *
+ * Security fixes applied (see backend/SECURITY_AUDIT.md):
+ *   C1: JWT auth on connection — token verified from handshake.auth.token
+ *       or handshake.query.token; connection rejected if invalid.
+ *   C2: Per-IP connection cap (5) via WsRateLimiter.
+ *   C3: Idle timeouts — 120s ready timeout during 'waiting', 60s
+ *       inactivity timeout during 'playing'. On timeout: emit game:error,
+ *       disconnect both players, reset lobby.
+ *   M1: maxHttpBufferSize: 1e4 (10KB) — rejects oversized payloads.
+ *   M2: transports: ['websocket'] — no polling attack surface.
  *
  * Client -> server (acked with MoveAck):
  *   'game:move' { boardIdx, cellIdx }
  *
  * Server -> client:
- *   'game:joined'  you were seated (also sent again if the lobby resets
- *                  because your opponent left — treat it as a full reset)
- *   'game:start'   both players present, moves accepted
- *   'game:update'  a move was applied (sent to BOTH players so each side
- *                  renders the same authoritative board)
+ *   'game:joined'  { player, board: GameSnapshot }
+ *   'game:start'   { players: [1,2] }
+ *   'game:update'  { player, mark, boardIdx, cellIdx, miniWinner?, nextBoard, outerWinner? }
  *   'game:over'    { winner, reason: 'boards' | 'draw' }
- *   'game:error'   { reason } — e.g. lobby full, connection refused
+ *   'game:error'   { reason } — 'unauthorized' | 'rate_limited' | 'lobby_full' | 'timeout' | ...
  *
  * Connect from the frontend with:
- *   io('http://localhost:3001/super-tic-tac-toe', { query: { lobby: 'ABC123' } })
- *
- * Player 1 = X (goes first), Player 2 = O.
+ *   io('http://localhost:3001/super-tic-tac-toe', {
+ *     auth: { token: '<JWT>' },
+ *     transports: ['websocket'],
+ *   })
  */
 type MoveAck = { ok: true } | { ok: false; reason: string };
 
-/** What we broadcast on `game:update` — a slimmed-down MoveResult. */
 interface GameUpdateEvent {
-  /** Who made the move (1 or 2). */
   player: PlayerIndex;
-  /** The mark placed ('X' or 'O'). */
   mark: 'X' | 'O';
-  /** Mini board the move was in (0-8). */
   boardIdx: number;
-  /** Cell the move was in (0-8). */
   cellIdx: number;
-  /** Present if this move won the mini board. */
   miniWinner?: 'X' | 'O';
-  /** Mini board the next player must play in, or null for free choice. */
   nextBoard: number | null;
-  /** Present if this move won the whole game. */
   outerWinner?: 'X' | 'O';
 }
 
-/** What we broadcast on `game:over`. */
 interface GameOverEvent {
-  /** 1 or 2 for a win, null for a draw. */
   winner: PlayerIndex | null;
-  /** 'boards' = 3 mini boards in a row; 'draw' = board full, no winner. */
   reason: 'boards' | 'draw';
 }
+
+/** Ready timeout: if player 2 doesn't arrive in 120s, disconnect player 1. */
+const READY_TIMEOUT_MS = 120_000;
+/** Inactivity timeout: if no move in 60s during playing, disconnect both. */
+const INACTIVITY_TIMEOUT_MS = 60_000;
 
 @WebSocketGateway({
   namespace: 'super-tic-tac-toe',
@@ -73,6 +76,8 @@ interface GameOverEvent {
     origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
     credentials: true,
   },
+  maxHttpBufferSize: 1e4, // M1: 10KB — more than enough for { boardIdx, cellIdx }
+  transports: ['websocket'], // M2: no polling
 })
 export class SuperTttGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -82,29 +87,52 @@ export class SuperTttGateway
   @WebSocketServer()
   private readonly server: Namespace;
 
-  /** seats[i] is player i+1's socket id. */
   private seats: (string | null)[] = [null, null];
-
-  /** The single authoritative game engine (shared by both players). */
   private engine: SuperTttEngine = new SuperTttEngine();
-
-  /** Current game status. */
   private status: 'waiting' | 'playing' | 'over' = 'waiting';
 
-  constructor() {
+  /** C3: ready timer (during 'waiting') + inactivity timer (during 'playing'). */
+  private readyTimer: NodeJS.Timeout | null = null;
+  private inactivityTimer: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly rateLimiter: WsRateLimiter,
+  ) {
     this.resetLobby();
   }
 
-  handleConnection(client: Socket): void {
+  async handleConnection(client: Socket): Promise<void> {
+    // C1: verify JWT before doing anything else.
+    const payload = await verifyWsToken(client, this.jwt);
+    if (!payload) {
+      this.logger.warn(`rejecting ${client.id}: unauthorized (no/invalid token)`);
+      client.emit('game:error', { reason: 'unauthorized' });
+      client.disconnect(true);
+      return;
+    }
+    client.data.userId = payload.sub;
+    client.data.login = payload.login;
+
+    // C2: per-IP connection cap.
+    const ip = getSocketIp(client);
+    if (!this.rateLimiter.tryAcquire(ip)) {
+      client.emit('game:error', { reason: 'rate_limited' });
+      client.disconnect(true);
+      return;
+    }
+    client.data.ip = ip;
+
     const lobby = client.handshake.query.lobby ?? '(none)';
     this.logger.log(
-      `client ${client.id} connected, lobby code: ${String(lobby)}`,
+      `client ${client.id} (login=${payload.login}, ip=${ip}) connected, lobby: ${String(lobby)}`,
     );
 
     const seat = this.seats.indexOf(null);
     if (seat === -1) {
       this.logger.warn(`rejecting ${client.id}: lobby full`);
       client.emit('game:error', { reason: 'lobby_full' });
+      this.rateLimiter.release(ip);
       client.disconnect(true);
       return;
     }
@@ -114,9 +142,15 @@ export class SuperTttGateway
     this.logger.log(`client ${client.id} seated as player ${seat + 1}`);
 
     if (this.seats.every((s) => s !== null)) {
+      // Both players present — start the game.
       this.status = 'playing';
+      this.clearReadyTimer();
+      this.startInactivityTimer();
       this.server.emit('game:start', { players: [1, 2] });
       this.logger.log('both players connected, game started');
+    } else {
+      // C3: first player — start the ready timeout.
+      this.startReadyTimer();
     }
   }
 
@@ -124,15 +158,18 @@ export class SuperTttGateway
     const seat = this.seats.indexOf(client.id);
     if (seat === -1) return;
 
+    // C2: release the connection slot.
+    const ip = (client.data as { ip?: string }).ip;
+    if (ip) this.rateLimiter.release(ip);
+
     const survivor = this.seats[1 - seat];
     this.resetLobby();
     this.logger.log(`client ${client.id} left, lobby reset`);
 
-    // Whoever stayed becomes player 1 of the fresh lobby; the frontend
-    // treats a repeated game:joined as a full reset.
     if (survivor !== null) {
       this.seats[0] = survivor;
       this.server.to(survivor).emit('game:joined', this.joinedEvent(0));
+      this.startReadyTimer();
     }
   }
 
@@ -158,14 +195,13 @@ export class SuperTttGateway
     const player: PlayerIndex = (seat + 1) as PlayerIndex;
     const result: MoveResult = this.engine.applyMove(player, payload);
     if (!result.ok) {
-      this.logger.debug(
-        `rejected move from ${client.id}: ${result.reason}`,
-      );
+      this.logger.debug(`rejected move from ${client.id}: ${result.reason}`);
       return result;
     }
 
-    // Broadcast the move to BOTH players (shared board — no side-by-side
-    // view like minesweeper; both render the same authoritative state).
+    // C3: reset the inactivity timer on every valid move.
+    this.restartInactivityTimer();
+
     const update: GameUpdateEvent = {
       player: result.player,
       mark: result.mark,
@@ -179,6 +215,7 @@ export class SuperTttGateway
 
     if (result.outcome !== 'continue') {
       this.status = 'over';
+      this.clearInactivityTimer();
       const overEvent: GameOverEvent =
         result.outcome === 'win'
           ? { winner: result.player, reason: 'boards' }
@@ -193,7 +230,61 @@ export class SuperTttGateway
     return { ok: true };
   }
 
-  /** Build the `game:joined` event for a freshly seated player. */
+  // ----- C3: timer management ------------------------------------------------
+
+  private startReadyTimer(): void {
+    this.clearReadyTimer();
+    this.readyTimer = setTimeout(() => {
+      this.logger.warn('ready timeout (120s) — no second player, disconnecting');
+      this.server.emit('game:error', { reason: 'timeout' });
+      this.disconnectAll();
+    }, READY_TIMEOUT_MS);
+  }
+
+  private clearReadyTimer(): void {
+    if (this.readyTimer) {
+      clearTimeout(this.readyTimer);
+      this.readyTimer = null;
+    }
+  }
+
+  private startInactivityTimer(): void {
+    this.clearInactivityTimer();
+    this.inactivityTimer = setTimeout(() => {
+      this.logger.warn('inactivity timeout (60s) — no moves, disconnecting');
+      this.server.emit('game:error', { reason: 'timeout' });
+      this.disconnectAll();
+    }, INACTIVITY_TIMEOUT_MS);
+  }
+
+  private restartInactivityTimer(): void {
+    if (this.status === 'playing') {
+      this.startInactivityTimer();
+    }
+  }
+
+  private clearInactivityTimer(): void {
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
+  }
+
+  /** Disconnect all seated clients (used by timeouts). */
+  private disconnectAll(): void {
+    this.clearReadyTimer();
+    this.clearInactivityTimer();
+    for (const seat of this.seats) {
+      if (seat) {
+        const s = this.server.sockets.get(seat);
+        s?.disconnect(true);
+      }
+    }
+    this.resetLobby();
+  }
+
+  // ----- lobby management ----------------------------------------------------
+
   private joinedEvent(seat: number): { player: PlayerIndex; board: GameSnapshot } {
     return {
       player: (seat + 1) as PlayerIndex,
@@ -201,8 +292,9 @@ export class SuperTttGateway
     };
   }
 
-  /** Reset the lobby to a fresh empty game. */
   private resetLobby(): void {
+    this.clearReadyTimer();
+    this.clearInactivityTimer();
     this.seats = [null, null];
     this.engine = new SuperTttEngine();
     this.status = 'waiting';
