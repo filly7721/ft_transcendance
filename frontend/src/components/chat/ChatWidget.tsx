@@ -19,7 +19,7 @@ export function ChatWidget() {
             <span className="font-arcade text-[10px] text-neon-cyan">CHAT</span>
             <button onClick={() => setOpen(false)} className="font-mono text-xs text-arcade-muted hover:text-neon-red">✕</button>
           </div>
-          <div className="h-96 w-80">
+          <div className="h-[500px] w-[450px]">
             <ChatPanel />
           </div>
         </div>
