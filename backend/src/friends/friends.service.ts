@@ -329,4 +329,18 @@ export class FriendsService {
       })),
     };
   }
+
+  /**
+   * Get an array of user IDs for all accepted friends of the given user.
+   */
+  async getFriendIds(userId: string): Promise<string[]> {
+    const friendships = await this.prisma.friendship.findMany({
+      where: {
+        status: STATUS_ACCEPTED,
+        OR: [{ requesterId: userId }, { addresseeId: userId }],
+      },
+      select: { requesterId: true, addresseeId: true },
+    });
+    return friendships.map((f) => (f.requesterId === userId ? f.addresseeId : f.requesterId));
+  }
 }
