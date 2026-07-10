@@ -31,6 +31,11 @@
     "backend/src/auth/guards/jwt-auth.guard.ts",
     "backend/src/auth/interfaces/jwt-payload.interface.ts",
     "backend/src/auth/strategies/jwt.strategy.ts",
+    "backend/src/chat/chat.controller.ts",
+    "backend/src/chat/chat.gateway.ts",
+    "backend/src/chat/chat.module.ts",
+    "backend/src/chat/chat.service.ts",
+    "backend/src/chat/dto/send-message.dto.ts",
     "backend/src/common/decorators/current-user.decorator.ts",
     "backend/src/common/filters/prisma-exception.filter.ts",
     "backend/src/common/types/authenticated-user.ts",
@@ -136,5 +141,5 @@
     "PLAN_profile_friends_chat.md",
     "todos.txt"
   ],
-  "ts": 1783692119862
+  "ts": 1783694049568
 }

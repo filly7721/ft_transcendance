@@ -11,6 +11,7 @@ import { LobbiesModule } from './lobbies/lobbies.module';
 import { ProfileModule } from './profile/profile.module';
 import { PresenceModule } from './presence/presence.module';
 import { FriendsModule } from './friends/friends.module';
+import { ChatModule } from './chat/chat.module';
 import { MinesweeperModule } from './minesweeper/minesweeper.module';
 import { SuperTttModule } from './superttt/superttt.module';
 import { validateEnv } from './config/env.validation';
@@ -44,6 +45,7 @@ import { validateEnv } from './config/env.validation';
     ProfileModule,
     PresenceModule,
     FriendsModule,
+    ChatModule,
     MinesweeperModule,
     SuperTttModule,
   ],
