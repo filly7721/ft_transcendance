@@ -62,6 +62,8 @@
     "backend/src/profile/profile.controller.ts",
     "backend/src/profile/profile.module.ts",
     "backend/src/profile/profile.service.ts",
+    "backend/src/social/social.gateway.ts",
+    "backend/src/social/social.module.ts",
     "backend/src/superttt/engine/superttt.engine.ts",
     "backend/src/superttt/superttt.gateway.ts",
     "backend/src/superttt/superttt.module.ts",
@@ -73,6 +75,7 @@
     "backend/src/users/users.service.ts",
     "backend/tsconfig.build.json",
     "backend/tsconfig.json",
+    "backend/uploads/avatars/5cfbf650-3a4e-4c64-8854-dd44c2c534d2-1783703236356.png",
     "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783700751264.png",
     "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783700767299.png",
     "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783701042841.jpg",
@@ -140,6 +143,7 @@
     "frontend/src/components/lobby/GameLobby.tsx",
     "frontend/src/components/lobby/LobbyRow.tsx",
     "frontend/src/components/lobby/LobbySelector.tsx",
+    "frontend/src/components/NotificationProvider.tsx",
     "frontend/src/components/profile/Avatar.tsx",
     "frontend/src/components/profile/FriendAvatar.tsx",
     "frontend/src/lib/api.ts",
@@ -151,6 +155,7 @@
     "frontend/src/lib/lobbies.ts",
     "frontend/src/lib/profile.ts",
     "frontend/src/lib/superTtt.ts",
+    "frontend/src/lib/useSocialSocket.ts",
     "frontend/tsconfig.json",
     "frontend/tsconfig.tsbuildinfo",
     "health-check.js",
@@ -160,5 +165,5 @@
     "README.md",
     "todos.txt"
   ],
-  "ts": 1783703002304
+  "ts": 1783704642212
 }

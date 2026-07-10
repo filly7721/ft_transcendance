@@ -1,10 +1,13 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PresenceService } from '../presence/presence.service';
+import { SocialGateway } from '../social/social.gateway';
 
 /** Friend status constants. */
 const STATUS_PENDING = 'PENDING';
@@ -58,6 +61,8 @@ export class FriendsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly presence: PresenceService,
+    @Inject(forwardRef(() => SocialGateway))
+    private readonly social: SocialGateway,
   ) {}
 
   /**
@@ -105,6 +110,11 @@ export class FriendsService {
       }
     }
 
+    const requester = await this.prisma.user.findUniqueOrThrow({
+      where: { id: requesterId },
+      select: { login: true, displayName: true, avatarUrl: true },
+    });
+
     const friendship = await this.prisma.friendship.create({
       data: {
         requesterId,
@@ -113,6 +123,14 @@ export class FriendsService {
       },
       select: { id: true, status: true },
     });
+
+    // Notify the addressee in real-time (if they're connected to /social)
+    void this.social.notifyFriendRequest(
+      addressee.id,
+      requester.login,
+      requester.displayName,
+      requester.avatarUrl,
+    );
 
     return {
       id: friendship.id,
@@ -150,6 +168,13 @@ export class FriendsService {
       where: { id: requestId },
       data: { status: STATUS_ACCEPTED },
     });
+
+    // Notify the requester in real-time that their request was accepted
+    const acceptor = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { login: true },
+    });
+    void this.social.notifyFriendAccept(friendship.requesterId, acceptor.login);
 
     return { message: 'friend request accepted' };
   }

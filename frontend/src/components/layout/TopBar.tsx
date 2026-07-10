@@ -1,12 +1,21 @@
+"use client";
+
 import Link from "next/link";
 import UserMenu from "./UserMenu";
+import { useNotifications } from "@/components/NotificationProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const topLinks = [
   { href: "/faq", label: "FAQ" },
-  // TODO: add ABOUT / SUPPORT links when those pages exist
 ];
 
 export default function TopBar() {
+  const { friendRequestCount, unreadChatCount } = useNotifications();
+  const { status } = useAuth();
+
+  // Don't show notification badges for guests
+  const showBadges = status === "authenticated";
+
   return (
     <header className="sticky top-0 z-50 border-b border-arcade-border bg-arcade-panel/90 backdrop-blur-sm">
       <div className="flex h-16 items-center justify-between gap-8 px-6">
@@ -24,6 +33,33 @@ export default function TopBar() {
               {link.label}
             </Link>
           ))}
+
+          {showBadges && (
+            <>
+              <Link
+                href="/friends"
+                className="relative text-xs font-mono uppercase tracking-widest text-arcade-muted transition-colors hover:text-neon-cyan"
+              >
+                FRIENDS
+                {friendRequestCount > 0 && (
+                  <span className="absolute -top-2 -right-3 flex h-4 min-w-4 items-center justify-center bg-neon-yellow px-1 font-arcade text-[8px] text-arcade-bg">
+                    {friendRequestCount}
+                  </span>
+                )}
+              </Link>
+              <Link
+                href="/chat"
+                className="relative text-xs font-mono uppercase tracking-widest text-arcade-muted transition-colors hover:text-neon-cyan"
+              >
+                CHAT
+                {unreadChatCount > 0 && (
+                  <span className="absolute -top-2 -right-3 flex h-4 min-w-4 items-center justify-center bg-neon-cyan px-1 font-arcade text-[8px] text-arcade-bg">
+                    {unreadChatCount}
+                  </span>
+                )}
+              </Link>
+            </>
+          )}
         </nav>
 
         <UserMenu />

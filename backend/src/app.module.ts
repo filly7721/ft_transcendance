@@ -13,6 +13,7 @@ import { PresenceModule } from './presence/presence.module';
 import { FriendsModule } from './friends/friends.module';
 import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { SocialModule } from './social/social.module';
 import { MinesweeperModule } from './minesweeper/minesweeper.module';
 import { SuperTttModule } from './superttt/superttt.module';
 import { validateEnv } from './config/env.validation';
@@ -48,6 +49,7 @@ import { validateEnv } from './config/env.validation';
     FriendsModule,
     ChatModule,
     UploadsModule,
+    SocialModule,
     MinesweeperModule,
     SuperTttModule,
   ],

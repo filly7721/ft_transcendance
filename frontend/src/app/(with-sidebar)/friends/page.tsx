@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Button from "@/components/Button";
 import { FriendAvatar } from "@/components/profile/FriendAvatar";
-import { useAuth } from "@/components/auth/AuthProvider";
 import {
   fetchFriends,
   fetchFriendRequests,
@@ -14,23 +13,42 @@ import {
   type Friend,
   type FriendRequestsResponse,
 } from "@/lib/friends";
+import { useNotifications } from "@/components/NotificationProvider";
 
 export default function FriendsPage() {
+  const { onlineFriendIds, refresh } = useNotifications();
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [requests, setRequests] = useState<FriendRequestsResponse | null>(null);
   const [searchLogin, setSearchLogin] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const reload = useCallback(async () => {
     const [f, r] = await Promise.all([fetchFriends(), fetchFriendRequests()]);
     setFriends(f);
     setRequests(r);
   }, []);
 
   useEffect(() => {
-    refresh().catch((e) => setError(e.message));
-  }, [refresh]);
+    reload().catch((e) => setError(e.message));
+  }, [reload]);
+
+  // Listen for real-time events: friend request received / accepted / presence change
+  useEffect(() => {
+    const handleFriendRequest = () => { reload(); };
+    const handleFriendAccept = () => { reload(); };
+    const handlePresence = () => { reload(); };
+
+    window.addEventListener("friends:request", handleFriendRequest);
+    window.addEventListener("friends:accept", handleFriendAccept);
+    window.addEventListener("presence:update", handlePresence);
+
+    return () => {
+      window.removeEventListener("friends:request", handleFriendRequest);
+      window.removeEventListener("friends:accept", handleFriendAccept);
+      window.removeEventListener("presence:update", handlePresence);
+    };
+  }, [reload]);
 
   async function handleSendRequest(e: React.FormEvent) {
     e.preventDefault();
@@ -42,22 +60,28 @@ export default function FriendsPage() {
       const result = await sendFriendRequest(login);
       setNotice(result.message);
       setSearchLogin("");
-      await refresh();
+      await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to send request");
     }
   }
 
   async function handleAccept(id: number) {
-    try { await acceptFriendRequest(id); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
+    try { await acceptFriendRequest(id); await reload(); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
   }
   async function handleReject(id: number) {
-    try { await rejectFriendRequest(id); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
+    try { await rejectFriendRequest(id); await reload(); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
   }
   async function handleUnfriend(login: string) {
     if (!confirm(`Unfriend ${login}?`)) return;
-    try { await unfriend(login); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
+    try { await unfriend(login); await reload(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
   }
+
+  // Map online status from NotificationProvider's onlineFriendIds (real-time)
+  const friendsWithOnline = friends?.map((f) => ({
+    ...f,
+    online: onlineFriendIds.has(f.id),
+  })) ?? null;
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
@@ -73,7 +97,7 @@ export default function FriendsPage() {
           <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">PENDING REQUESTS</h2>
           {requests.incoming.length > 0 && (
             <div className="mb-3">
-              <p className="mb-2 font-mono text-[10px] uppercase text-neon-yellow">Incoming</p>
+              <p className="mb-2 font-mono text-[10px] uppercase text-neon-yellow">Incoming ({requests.incoming.length})</p>
               {requests.incoming.map((req) => (
                 <div key={req.id} className="mb-2 flex items-center gap-3 border border-arcade-border bg-arcade-card p-2">
                   <FriendAvatar login={req.login} avatarUrl={req.avatarUrl} size="sm" />
@@ -100,9 +124,9 @@ export default function FriendsPage() {
       )}
       <div>
         <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">YOUR FRIENDS</h2>
-        {friends === null ? (<p className="py-4 text-center font-mono text-xs text-arcade-muted animate-blink">LOADING...</p>) : friends.length === 0 ? (<p className="py-4 text-center font-mono text-xs text-arcade-muted">NO FRIENDS YET</p>) : (
+        {friendsWithOnline === null ? (<p className="py-4 text-center font-mono text-xs text-arcade-muted animate-blink">LOADING...</p>) : friendsWithOnline.length === 0 ? (<p className="py-4 text-center font-mono text-xs text-arcade-muted">NO FRIENDS YET</p>) : (
           <ul className="flex flex-col gap-2">
-            {friends.map((f) => (
+            {friendsWithOnline.map((f) => (
               <li key={f.id} className="flex items-center gap-3 border border-arcade-border bg-arcade-card p-2">
                 <FriendAvatar login={f.login} avatarUrl={f.avatarUrl} online={f.online} size="sm" />
                 <div className="min-w-0 flex-1"><p className="truncate font-mono text-xs">{f.login}</p><p className="truncate font-mono text-[10px] text-arcade-muted">{f.displayName}</p></div>
