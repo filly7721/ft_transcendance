@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Button from "@/components/Button";
+import { Avatar } from "@/components/profile/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { updateProfile, uploadAvatar } from "@/lib/profile";
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +20,7 @@ export default function SettingsPage() {
     try {
       await updateProfile({ displayName });
       setNotice("Display name updated");
+      await refreshUser();
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
     }
@@ -30,10 +32,11 @@ export default function SettingsPage() {
     setUploading(true);
     setError(null);
     try {
-      const result = await uploadAvatar(file);
-      setNotice(`Avatar uploaded: ${result.avatarUrl}`);
-      // Reload to refresh the user's avatar in the AuthProvider
-      window.location.reload();
+      await uploadAvatar(file);
+      setNotice("Avatar uploaded");
+      // Refresh the user in the AuthProvider so the new avatarUrl propagates
+      // everywhere (TopBar, profile page, friends list) without a full reload.
+      await refreshUser();
     } catch (e) {
       setError(e instanceof Error ? e.message : "upload failed");
     } finally {
@@ -47,6 +50,15 @@ export default function SettingsPage() {
       {notice && <p className="mb-4 font-mono text-xs text-neon-green">{notice}</p>}
       {error && <p className="mb-4 font-mono text-xs text-neon-red">{error}</p>}
 
+      {/* Current avatar preview */}
+      <div className="mb-8 flex items-center gap-4 border border-arcade-border bg-arcade-panel p-4">
+        <Avatar login={user?.login ?? "?"} avatarUrl={user?.avatarUrl ?? null} className="h-16 w-16" />
+        <div>
+          <p className="font-arcade text-[10px] text-arcade-muted">CURRENT AVATAR</p>
+          <p className="font-mono text-xs">{user?.avatarUrl ? "Custom" : "Default"}</p>
+        </div>
+      </div>
+
       {/* Display name */}
       <form onSubmit={handleSaveName} className="mb-8 border border-arcade-border bg-arcade-panel p-4">
         <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">DISPLAY NAME</h2>
@@ -56,7 +68,7 @@ export default function SettingsPage() {
 
       {/* Avatar upload */}
       <div className="mb-8 border border-arcade-border bg-arcade-panel p-4">
-        <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">AVATAR</h2>
+        <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">UPLOAD NEW AVATAR</h2>
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarChange} disabled={uploading} className="mb-3 w-full font-mono text-xs text-arcade-muted file:cursor-pointer file:border file:border-neon-yellow/40 file:bg-transparent file:px-3 file:py-1 file:font-arcade file:text-[10px] file:text-neon-yellow" />
         <p className="font-mono text-[10px] text-arcade-muted">PNG, JPEG, or WebP. Max 2MB.</p>
         {uploading && <p className="mt-2 font-mono text-xs text-neon-cyan animate-blink">UPLOADING...</p>}

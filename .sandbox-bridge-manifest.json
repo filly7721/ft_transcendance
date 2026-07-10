@@ -11,7 +11,6 @@
     "backend/package-lock.json",
     "backend/package.json",
     "backend/prisma/dev.db",
-    "backend/prisma/dev.db-journal",
     "backend/prisma/migrations/20260710135351_add_profile_friends_chat/migration.sql",
     "backend/prisma/migrations/migration_lock.toml",
     "backend/prisma/schema.prisma",
@@ -72,6 +71,10 @@
     "backend/src/users/users.service.ts",
     "backend/tsconfig.build.json",
     "backend/tsconfig.json",
+    "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783700751264.png",
+    "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783700767299.png",
+    "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783701042841.jpg",
+    "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783701606984.png",
     "frontend/.env.example",
     "frontend/.gitignore",
     "frontend/AGENTS.md",
@@ -154,5 +157,5 @@
     "README.md",
     "todos.txt"
   ],
-  "ts": 1783696665858
+  "ts": 1783702148271
 }

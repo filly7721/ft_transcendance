@@ -11,7 +11,7 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
  * Bootstrap the NestJS application.
  *
  * Global middleware/pipes applied here:
- *  - helmet:        secure HTTP headers.
+ *  - helmet:        secure HTTP headers (CSP configured to allow avatar images).
  *  - cookieParser:  required if/when we add httpOnly refresh-token cookies.
  *  - CORS:          restricted to the frontend origin (CORS_ORIGIN env var).
  *  - ValidationPipe: validate every incoming DTO, strip unknown properties
@@ -26,7 +26,19 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
 
-  app.use(helmet());
+  // helmet with a permissive img-src CSP so avatars served from the backend
+  // origin (and data: URLs) load in the browser. Without this, helmet's
+  // default CSP blocks cross-origin image loads and avatars don't render.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+        },
+      },
+    }),
+  );
   app.use(cookieParser());
 
   app.enableCors({
@@ -42,7 +54,12 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    // Exclude /uploads from the /api prefix so avatar files are served at
+    // /uploads/avatars/<file>.png (not /api/uploads/...). This matches the
+    // avatarUrl stored in the DB and what the frontend constructs.
+    exclude: ['/uploads/(.*)'],
+  });
 
   // Serve uploaded files (avatars) at /uploads/* from the uploads/ dir.
   // The avatar URLs stored in the DB are relative paths like
