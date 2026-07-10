@@ -52,6 +52,9 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       }
       // Refresh conversations to update last message + unread
       fetchConversations().then(setConversations).catch(() => {});
+      // Dispatch a window event so the NotificationProvider can update the
+      // unread chat badge instantly (without waiting for the 30s poll).
+      window.dispatchEvent(new CustomEvent("chat:message", { detail: msg }));
     });
 
     socket.on("chat:typing", ({ senderLogin }: { senderLogin: string }) => {
