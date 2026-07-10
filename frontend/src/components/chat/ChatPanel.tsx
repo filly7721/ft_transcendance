@@ -90,7 +90,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     setMessages([]);
     fetchHistory(activePeer)
       .then((h) => {
-        setMessages(h.messages);
+        setMessages([...h.messages].reverse());
         // Mark as read
         socketRef.current?.emit("chat:read", { senderLogin: activePeer });
       })
