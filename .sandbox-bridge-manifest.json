@@ -1,6 +1,7 @@
 {
   "files": [
     ".gitignore",
+    "backend/.env",
     "backend/.env.example",
     "backend/.gitignore",
     "backend/.prettierrc",
@@ -9,6 +10,10 @@
     "backend/nest-cli.json",
     "backend/package-lock.json",
     "backend/package.json",
+    "backend/prisma/dev.db",
+    "backend/prisma/dev.db-journal",
+    "backend/prisma/migrations/20260710135351_add_profile_friends_chat/migration.sql",
+    "backend/prisma/migrations/migration_lock.toml",
     "backend/prisma/schema.prisma",
     "backend/README.md",
     "backend/SECURITY_AUDIT.md",
@@ -31,6 +36,9 @@
     "backend/src/common/types/authenticated-user.ts",
     "backend/src/common/ws-auth.ts",
     "backend/src/config/env.validation.ts",
+    "backend/src/friends/friends.controller.ts",
+    "backend/src/friends/friends.module.ts",
+    "backend/src/friends/friends.service.ts",
     "backend/src/lobbies/dto/create-lobby.dto.ts",
     "backend/src/lobbies/dto/lobby-response.ts",
     "backend/src/lobbies/lobbies.controller.ts",
@@ -42,6 +50,8 @@
     "backend/src/minesweeper/engine/minesweeper.engine.ts",
     "backend/src/minesweeper/minesweeper.gateway.ts",
     "backend/src/minesweeper/minesweeper.module.ts",
+    "backend/src/presence/presence.module.ts",
+    "backend/src/presence/presence.service.ts",
     "backend/src/prisma/prisma.module.ts",
     "backend/src/prisma/prisma.service.ts",
     "backend/src/profile/dto/update-profile.dto.ts",
@@ -126,5 +136,5 @@
     "PLAN_profile_friends_chat.md",
     "todos.txt"
   ],
-  "ts": 1783691562087
+  "ts": 1783692119862
 }
