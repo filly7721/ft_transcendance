@@ -15,7 +15,6 @@ export default function Sidebar() {
     <aside className="hidden w-52 shrink-0 border-r border-arcade-border bg-arcade-panel/60 py-6 md:block">
       <Section title="MENU">
         <NavLink href="/" label="Home" exact />
-        {/* TODO: add LEADERBOARD and PROFILE links once those pages exist */}
       </Section>
 
       <Section title="LOBBY">
@@ -32,7 +31,14 @@ export default function Sidebar() {
         ))}
       </Section>
 
-      {/* TODO: add SOCIAL section (friends, chat) for the multiplayer features */}
+      <Section title="SOCIAL">
+        <NavLink href="/friends" label="Friends" />
+        <NavLink href="/chat" label="Chat" />
+      </Section>
+
+      <Section title="ACCOUNT">
+        <NavLink href="/settings" label="Settings" />
+      </Section>
     </aside>
   );
 }
