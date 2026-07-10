@@ -146,11 +146,13 @@
     "frontend/src/lib/profile.ts",
     "frontend/src/lib/superTtt.ts",
     "frontend/tsconfig.json",
+    "frontend/tsconfig.tsbuildinfo",
     "health-check.js",
     "package-lock.json",
     "package.json",
     "PLAN_profile_friends_chat.md",
+    "README.md",
     "todos.txt"
   ],
-  "ts": 1783696255111
+  "ts": 1783696665858
 }
