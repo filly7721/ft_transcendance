@@ -1,9 +1,7 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import { join } from 'path';
 import { AppModule } from './app.module';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 
@@ -17,18 +15,18 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
  *  - ValidationPipe: validate every incoming DTO, strip unknown properties
  *                   and reject them, and transform payloads to their typed
  *                   shapes.
- *  - Static assets: serve uploaded files (avatars) from /uploads.
  *
- * The app is typed as NestExpressApplication so we can use useStaticAssets()
- * for serving uploaded avatar files.
+ * Avatars are served by UploadsController (a dedicated JWT-guarded controller
+ * at /api/uploads/avatars/:filename), NOT by express.static. This is more
+ * reliable than useStaticAssets under the global /api prefix and lets us
+ * require authentication for avatar access.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
   // helmet with a permissive img-src CSP so avatars served from the backend
-  // origin (and data: URLs) load in the browser. Without this, helmet's
-  // default CSP blocks cross-origin image loads and avatars don't render.
+  // origin (and data: URLs) load in the browser.
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -54,19 +52,7 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  app.setGlobalPrefix('api', {
-    // Exclude /uploads from the /api prefix so avatar files are served at
-    // /uploads/avatars/<file>.png (not /api/uploads/...). This matches the
-    // avatarUrl stored in the DB and what the frontend constructs.
-    exclude: ['/uploads/(.*)'],
-  });
-
-  // Serve uploaded files (avatars) at /uploads/* from the uploads/ dir.
-  // The avatar URLs stored in the DB are relative paths like
-  // "/uploads/avatars/<file>.png" — express.static serves them directly.
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
-    prefix: '/uploads/',
-  });
+  app.setGlobalPrefix('api');
 
   // Translate known Prisma errors (P2002 unique, P2025 not-found) into proper
   // HTTP statuses globally, so services don't repeat try/catch boilerplate.
