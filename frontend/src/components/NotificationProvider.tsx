@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import { getToken } from "@/lib/auth-storage";
-import { fetchFriendRequests, fetchConversations } from "@/lib/friends";
+import { fetchFriendRequests } from "@/lib/friends";
 import { apiFetch } from "@/lib/api";
 
 const SOCIAL_WS = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/social`;
@@ -13,7 +13,7 @@ type NotificationState = {
   friendRequestCount: number;
   /** Total unread chat messages across all conversations. */
   unreadChatCount: number;
-  /** Online friend logins (real-time). */
+  /** Online friend IDs (real-time). */
   onlineFriendIds: Set<string>;
   /** Refresh counts from REST (fallback). */
   refresh: () => Promise<void>;
@@ -27,13 +27,21 @@ const NotificationContext = createContext<NotificationState | null>(null);
  *   - Unread chat count (polled from REST every 30s + refreshed on chat:message)
  *   - Online friend IDs (real-time via presence:update)
  *
- * Exposes badge counts that the TopBar/Sidebar can display.
+ * Exposes badge counts via useNotifications() for the TopBar/Sidebar.
+ *
+ * ALSO dispatches window CustomEvents so page-level components (like the
+ * friends page) can react to real-time updates without each one opening
+ * its own WS connection:
+ *   - "friends:request"  — a new friend request was received
+ *   - "friends:accept"   — a friend request was accepted (by either party)
+ *   - "friends:reject"   — a friend request was rejected
+ *   - "presence:update"  — a friend came online or went offline { detail: { userId, online } }
+ *   - "chat:message"     — a new chat message was received
  */
 export default function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [friendRequestCount, setFriendRequestCount] = useState(0);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [onlineFriendIds, setOnlineFriendIds] = useState<Set<string>>(new Set());
-  const [socket, setSocket] = useState<Socket | null>(null);
 
   const refresh = useCallback(async () => {
     const token = getToken();
@@ -66,7 +74,6 @@ export default function NotificationProvider({ children }: { children: React.Rea
       auth: { token },
       transports: ["websocket"],
     });
-    setSocket(s);
 
     s.on("connect", () => {
       // Request initial state
@@ -74,6 +81,8 @@ export default function NotificationProvider({ children }: { children: React.Rea
         if (ack.ok && ack.data) {
           setOnlineFriendIds(new Set(ack.data.onlineFriends));
           setFriendRequestCount(ack.data.pendingRequests);
+          // Notify pages that presence data is available
+          window.dispatchEvent(new CustomEvent("presence:sync"));
         }
       });
     });
@@ -85,15 +94,21 @@ export default function NotificationProvider({ children }: { children: React.Rea
         else next.delete(userId);
         return next;
       });
+      // Dispatch so the friends page can re-fetch + re-render
+      window.dispatchEvent(new CustomEvent("presence:update", { detail: { userId, online } }));
     });
 
     s.on("friends:request", () => {
       setFriendRequestCount((prev) => prev + 1);
-      refresh(); // re-fetch to get the full request details
+      refresh();
+      // Dispatch so the friends page can re-fetch + re-render the request list
+      window.dispatchEvent(new CustomEvent("friends:request"));
     });
 
     s.on("friends:accept", () => {
       refresh();
+      // Dispatch so the friends page can re-fetch + move the friend from pending to accepted
+      window.dispatchEvent(new CustomEvent("friends:accept"));
     });
 
     // Poll unread chat count every 30s as a fallback
