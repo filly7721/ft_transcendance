@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
@@ -57,6 +57,7 @@ export class SocialGateway
   constructor(
     private readonly jwt: JwtService,
     private readonly presence: PresenceService,
+    @Inject(forwardRef(() => FriendsService))
     private readonly friends: FriendsService,
     private readonly rateLimiter: WsRateLimiter,
   ) {}
