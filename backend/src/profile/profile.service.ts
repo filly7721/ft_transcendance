@@ -81,7 +81,7 @@ export class ProfileService {
     userId: string,
     filename: string,
   ): Promise<{ avatarUrl: string }> {
-    const relativePath = `/uploads/avatars/${filename}`;
+    const relativePath = `/api/uploads/avatars/${filename}`;
     await this.prisma.user.update({
       where: { id: userId },
       data: { avatarUrl: relativePath },

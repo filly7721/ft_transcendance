@@ -65,6 +65,8 @@
     "backend/src/superttt/engine/superttt.engine.ts",
     "backend/src/superttt/superttt.gateway.ts",
     "backend/src/superttt/superttt.module.ts",
+    "backend/src/uploads/uploads.controller.ts",
+    "backend/src/uploads/uploads.module.ts",
     "backend/src/users/dto/user-response.dto.ts",
     "backend/src/users/users.controller.ts",
     "backend/src/users/users.module.ts",
@@ -75,6 +77,7 @@
     "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783700767299.png",
     "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783701042841.jpg",
     "backend/uploads/avatars/7adf6e48-d9be-41fa-b463-b7f96bc59905-1783701606984.png",
+    "backend/uploads/avatars/d0110f14-b5ba-40bd-8034-4fcca2a039d7-1783702714905.png",
     "frontend/.env.example",
     "frontend/.gitignore",
     "frontend/AGENTS.md",
@@ -157,5 +160,5 @@
     "README.md",
     "todos.txt"
   ],
-  "ts": 1783702148271
+  "ts": 1783703002304
 }
