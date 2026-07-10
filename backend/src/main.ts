@@ -25,16 +25,22 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
-  // helmet with a permissive img-src CSP so avatars served from the backend
-  // origin (and data: URLs) load in the browser.
+  // helmet with:
+  //  - permissive img-src CSP so avatars served from the backend origin load
+  //  - crossOriginResourcePolicy: 'cross-origin' so the browser allows
+  //    cross-origin image loads (frontend on :3000 fetches avatars from :3001).
+  //    Helmet's default is 'same-origin' which blocks <img> tags from loading
+  //    cross-origin images even when CORS is configured — the browser returns
+  //    net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin.
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          imgSrc: ["'self'", 'data:', 'blob:'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'http:', 'https:'],
         },
       },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
   app.use(cookieParser());
