@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { FriendsModule } from '../friends/friends.module';
 import { SocialGateway } from './social.gateway';
@@ -13,9 +13,13 @@ import { SocialGateway } from './social.gateway';
  * Imports AuthModule for JwtService + WsRateLimiter. Depends on the global
  * PresenceModule and FriendsModule (FriendsService for getFriendIds +
  * listFriends + listRequests).
+ *
+ * Circular dependency: SocialModule imports FriendsModule (for FriendsService),
+ * and FriendsModule imports SocialModule (for SocialGateway). Both sides use
+ * forwardRef to break the cycle.
  */
 @Module({
-  imports: [AuthModule, FriendsModule],
+  imports: [AuthModule, forwardRef(() => FriendsModule)],
   providers: [SocialGateway],
   exports: [SocialGateway],
 })
