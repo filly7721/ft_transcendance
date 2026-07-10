@@ -5,9 +5,10 @@ import { FriendsService } from './friends.service';
 /**
  * Friends feature module.
  *
- * Depends on the global `PrismaModule` and `PresenceModule` (both @Global,
- * no explicit import needed). PresenceService provides real-time online
- * status for the friends list.
+ * Depends on the global `PrismaModule` and `PresenceModule` (both @Global).
+ * SocialGateway is injected via forwardRef to avoid a circular dependency
+ * (SocialModule imports FriendsModule for FriendsService, FriendsService
+ * needs SocialGateway for real-time notifications).
  */
 @Module({
   controllers: [FriendsController],
