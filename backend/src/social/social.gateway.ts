@@ -70,17 +70,17 @@ export class SocialGateway
       client.disconnect(true);
       return;
     }
-    const userId = payload.sub;
-    client.data.userId = userId;
-    client.data.login = payload.login;
-
-    // C2: per-IP connection cap
+    // C2: per-IP connection cap — checked before any client.data is set so
+    // a rejected socket's handleDisconnect is a clean no-op.
     const ip = getSocketIp(client);
     if (!this.rateLimiter.tryAcquire('social', ip)) {
       client.emit('social:error', { reason: 'rate_limited' });
       client.disconnect(true);
       return;
     }
+
+    const userId = payload.sub;
+    client.data.userId = userId;
     client.data.ip = ip;
 
     // Register in PresenceService (shared with chat gateway)

@@ -275,6 +275,57 @@ export class ChatService {
   }
 
   /**
+   * Resolve a login to a user ID (null if no such user). Used by the
+   * gateway to route socket events by user ID instead of by the login
+   * baked into the socket's JWT — logins can be renamed, user IDs can't.
+   */
+  async getUserIdByLogin(login: string): Promise<string | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { login },
+      select: { id: true },
+    });
+    return user?.id ?? null;
+  }
+
+  /**
+   * Resolve the context for a lightweight social event (typing indicator,
+   * read receipt) from the caller to a peer: the peer's user ID and the
+   * caller's *current* login (read fresh from the DB, not from the JWT,
+   * so it survives login renames).
+   *
+   * Returns null when the peer doesn't exist or the two users are not
+   * accepted friends — these events must not reach strangers.
+   */
+  async getPeerContext(
+    userId: string,
+    peerLogin: string,
+  ): Promise<{ peerId: string; myLogin: string } | null> {
+    const peer = await this.prisma.user.findUnique({
+      where: { login: peerLogin },
+      select: { id: true },
+    });
+    if (!peer) return null;
+
+    const friendship = await this.prisma.friendship.findFirst({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { requesterId: userId, addresseeId: peer.id },
+          { requesterId: peer.id, addresseeId: userId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!friendship) return null;
+
+    const me = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { login: true },
+    });
+    return { peerId: peer.id, myLogin: me.login };
+  }
+
+  /**
    * Get the user IDs of a user's accepted friends (for presence broadcasts).
    * Used by the chat gateway to know who to notify when a user comes online
    * or goes offline.
