@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -158,7 +159,7 @@ export class FriendsService {
       throw new NotFoundException(`friend request ${requestId} not found`);
     }
     if (friendship.addresseeId !== userId) {
-      throw new ConflictException('only the addressee can accept this request');
+      throw new ForbiddenException('only the addressee can accept this request');
     }
     if (friendship.status !== STATUS_PENDING) {
       throw new ConflictException(`request is already ${friendship.status}`);
@@ -197,7 +198,7 @@ export class FriendsService {
       throw new NotFoundException(`friend request ${requestId} not found`);
     }
     if (friendship.addresseeId !== userId) {
-      throw new ConflictException('only the addressee can reject this request');
+      throw new ForbiddenException('only the addressee can reject this request');
     }
 
     await this.prisma.friendship.delete({ where: { id: requestId } });
@@ -207,9 +208,12 @@ export class FriendsService {
 
   /**
    * Unfriend a user by their login. Deletes the friendship row regardless
-   * of who initiated it or what status it's in.
+   * of who initiated it (also cancels an outgoing PENDING request).
    *
-   * - 404 if no friendship exists.
+   * BLOCKED rows are excluded: a block must not be removable by the
+   * blocked party simply calling unfriend.
+   *
+   * - 404 if no (non-blocked) friendship exists.
    */
   async unfriend(
     userId: string,
@@ -225,6 +229,7 @@ export class FriendsService {
 
     const friendship = await this.prisma.friendship.findFirst({
       where: {
+        NOT: { status: STATUS_BLOCKED },
         OR: [
           { requesterId: userId, addresseeId: friend.id },
           { requesterId: friend.id, addresseeId: userId },
