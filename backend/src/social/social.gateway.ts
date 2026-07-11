@@ -178,4 +178,23 @@ export class SocialGateway
       }
     }
   }
+
+  /**
+   * Notify a user's friends that their profile changed (login, displayName,
+   * or avatar). Called by ProfileService.updateProfile after a successful
+   * update. The frontend friends list re-fetches on this event so it shows
+   * the new login/displayName without a manual page refresh.
+   */
+  async notifyProfileUpdate(userId: string): Promise<void> {
+    const friendIds = await this.friends.getFriendIds(userId);
+    if (friendIds.length === 0) return;
+
+    const sockets = await this.server.fetchSockets();
+    for (const s of sockets) {
+      const data = s.data as { userId?: string };
+      if (data.userId && friendIds.includes(data.userId)) {
+        this.server.to(s.id).emit('profile:update', { userId });
+      }
+    }
+  }
 }

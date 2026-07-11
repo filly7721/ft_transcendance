@@ -31,6 +31,7 @@ export function fetchPublicProfile(login: string): Promise<PublicProfile> {
 
 export function updateProfile(data: {
   displayName?: string;
+  login?: string;
   avatarUrl?: string;
 }): Promise<UpdatedProfile> {
   return apiFetch<UpdatedProfile>("/users/me", {

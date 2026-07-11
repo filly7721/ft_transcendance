@@ -8,18 +8,19 @@ import { updateProfile, uploadAvatar } from "@/lib/profile";
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
+  const [login, setLogin] = useState(user?.login ?? "");
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  async function handleSaveName(e: React.FormEvent) {
+  async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
     setNotice(null);
     setError(null);
     try {
-      await updateProfile({ displayName });
-      setNotice("Display name updated");
+      await updateProfile({ login, displayName });
+      setNotice("Profile updated");
       await refreshUser();
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
@@ -34,8 +35,6 @@ export default function SettingsPage() {
     try {
       await uploadAvatar(file);
       setNotice("Avatar uploaded");
-      // Refresh the user in the AuthProvider so the new avatarUrl propagates
-      // everywhere (TopBar, profile page, friends list) without a full reload.
       await refreshUser();
     } catch (e) {
       setError(e instanceof Error ? e.message : "upload failed");
@@ -59,10 +58,30 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Display name */}
-      <form onSubmit={handleSaveName} className="mb-8 border border-arcade-border bg-arcade-panel p-4">
-        <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">DISPLAY NAME</h2>
-        <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={20} className="mb-3 w-full border border-arcade-border bg-arcade-bg px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:border-neon-cyan" />
+      {/* Login + Display name */}
+      <form onSubmit={handleSaveProfile} className="mb-8 border border-arcade-border bg-arcade-panel p-4">
+        <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">PROFILE</h2>
+
+        <label className="mb-1 block font-mono text-[10px] uppercase text-arcade-muted">Login (username)</label>
+        <input
+          type="text"
+          value={login}
+          onChange={(e) => setLogin(e.target.value)}
+          maxLength={20}
+          pattern="[a-zA-Z0-9_-]+"
+          title="Letters, digits, _ and - only"
+          className="mb-3 w-full border border-arcade-border bg-arcade-bg px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:border-neon-cyan"
+        />
+
+        <label className="mb-1 block font-mono text-[10px] uppercase text-arcade-muted">Display Name</label>
+        <input
+          type="text"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          maxLength={20}
+          className="mb-3 w-full border border-arcade-border bg-arcade-bg px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:border-neon-cyan"
+        />
+
         <Button type="submit">SAVE</Button>
       </form>
 
