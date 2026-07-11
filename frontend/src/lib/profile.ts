@@ -23,6 +23,8 @@ export type UpdatedProfile = {
   avatarUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Fresh JWT, present only when the login changed — must replace the stored token. */
+  accessToken?: string;
 };
 
 export function fetchPublicProfile(login: string): Promise<PublicProfile> {

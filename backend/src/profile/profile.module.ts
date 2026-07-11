@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
 import { SocialModule } from '../social/social.module';
+import { AuthModule } from '../auth/auth.module';
 
 /**
  * Profile feature module.
@@ -11,7 +12,9 @@ import { SocialModule } from '../social/social.module';
  * changes their login/displayName/avatar).
  */
 @Module({
-  imports: [forwardRef(() => SocialModule)],
+  // AuthModule re-exports JwtModule: ProfileService reissues the JWT when
+  // the login changes (the payload embeds the login).
+  imports: [AuthModule, forwardRef(() => SocialModule)],
   controllers: [ProfileController],
   providers: [ProfileService],
   exports: [ProfileService],
