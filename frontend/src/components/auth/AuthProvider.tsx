@@ -14,20 +14,20 @@ type AuthContextValue = AuthState & {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, login: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Re-fetch the current user from /users/me. Call after profile updates
+   *  (e.g. avatar upload, displayName change) so the cached user stays fresh. */
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Lazy init so SSR/first paint never has to flip synchronously from
-  // "loading" to "guest" when there was never a token to check.
   const [state, setState] = useState<AuthState>(() =>
     getToken() ? { status: "loading", user: null } : { status: "guest", user: null },
   );
 
   useEffect(() => {
     if (state.status !== "loading") return;
-    // Token exists but may be stale/expired/for a deleted account — verify it.
     authApi
       .fetchMe()
       .then((user) => setState({ status: "authenticated", user }))
@@ -54,8 +54,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     setState({ status: "guest", user: null });
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const user = await authApi.fetchMe();
+    setState({ status: "authenticated", user });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout }}>
+    <AuthContext.Provider value={{ ...state, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

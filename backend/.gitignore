@@ -1,0 +1,5 @@
+
+# Uploaded files (avatars etc.) — created at runtime, never committed
+
+# Log files
+*.log

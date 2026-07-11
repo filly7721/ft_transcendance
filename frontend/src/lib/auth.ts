@@ -3,10 +3,11 @@
 import { apiFetch } from "./api";
 
 export type User = {
-  id: number;
+  id: string;
   email: string;
   login: string;
   displayName: string;
+  avatarUrl: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -36,4 +37,15 @@ export function register(
 
 export function fetchMe(): Promise<User> {
   return apiFetch<User>("/users/me");
+}
+
+/**
+ * Permanently delete the current account. The backend requires the current
+ * password so a stolen JWT alone can't destroy an account.
+ */
+export function deleteAccount(password: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>("/auth/account", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
 }

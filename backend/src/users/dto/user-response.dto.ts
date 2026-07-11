@@ -1,4 +1,4 @@
-import { IsDateString, IsString } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsUrl } from 'class-validator';
 
 /**
  * Public user representation returned by every endpoint that exposes a user.
@@ -8,6 +8,7 @@ import { IsDateString, IsString } from 'class-validator';
  *
  * `passwordHash` is structurally absent — it can never be serialized over HTTP.
  * `id` is a UUID string (non-enumerable).
+ * `avatarUrl` is nullable (null = use default avatar).
  */
 export class UserResponseDto {
   @IsString()
@@ -21,6 +22,11 @@ export class UserResponseDto {
 
   @IsString()
   displayName!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsUrl()
+  avatarUrl?: string | null;
 
   @IsDateString()
   createdAt!: Date;

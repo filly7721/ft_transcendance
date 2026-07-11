@@ -6,11 +6,15 @@ import type { Socket } from 'socket.io';
  * Per-IP WebSocket connection limiter (C2 fix).
  *
  * Caps concurrent WS connections per IP address to prevent connection-flood
- * DoS. Injected into both game gateways; called in `handleConnection`
- * before seating and in `handleDisconnect` to release.
+ * DoS. Injected into the gateways; called in `handleConnection` before
+ * seating and in `handleDisconnect` to release.
  *
- * Default limit: 5 concurrent connections per IP. A human playing 2 games
- * (minesweeper + superttt) + a spectator tab = 3; 5 is comfortable headroom.
+ * The limiter is a singleton shared by every gateway, so slots are scoped
+ * per namespace: each gateway passes its namespace name and gets its own
+ * per-IP pool. Without the scope, a user with the social + chat sockets a
+ * normal page opens would eat the game gateways' budget too.
+ *
+ * Default limit: 5 concurrent connections per IP per namespace.
  */
 @Injectable()
 export class WsRateLimiter {
@@ -19,28 +23,30 @@ export class WsRateLimiter {
   private readonly maxPerIp: number = 5;
 
   /**
-   * Try to acquire a connection slot for the given IP.
-   * Returns true if allowed, false if the IP is over the limit.
+   * Try to acquire a connection slot for the given IP in the given
+   * namespace. Returns true if allowed, false if over the limit.
    */
-  tryAcquire(ip: string): boolean {
-    const current = this.counts.get(ip) ?? 0;
+  tryAcquire(namespace: string, ip: string): boolean {
+    const key = `${namespace}:${ip}`;
+    const current = this.counts.get(key) ?? 0;
     if (current >= this.maxPerIp) {
       this.logger.warn(
-        `rejecting connection from ${ip}: ${current}/${this.maxPerIp} already active`,
+        `rejecting connection from ${ip} on ${namespace}: ${current}/${this.maxPerIp} already active`,
       );
       return false;
     }
-    this.counts.set(ip, current + 1);
+    this.counts.set(key, current + 1);
     return true;
   }
 
   /** Release a connection slot (on disconnect). */
-  release(ip: string): void {
-    const current = this.counts.get(ip) ?? 0;
+  release(namespace: string, ip: string): void {
+    const key = `${namespace}:${ip}`;
+    const current = this.counts.get(key) ?? 0;
     if (current <= 1) {
-      this.counts.delete(ip);
+      this.counts.delete(key);
     } else {
-      this.counts.set(ip, current - 1);
+      this.counts.set(key, current - 1);
     }
   }
 }
@@ -73,11 +79,21 @@ export async function verifyWsToken(
   }
 }
 
-/** Extract the client IP from a socket, accounting for proxies. */
+/**
+ * Extract the client IP from a socket.
+ *
+ * X-Forwarded-For is client-controlled, so trusting it unconditionally lets
+ * anyone bypass the per-IP cap (and grow the limiter map without bound) by
+ * sending a random header per connection. It is only honored when the app
+ * is explicitly deployed behind a trusted reverse proxy (TRUST_PROXY=true);
+ * otherwise the TCP peer address is used.
+ */
 export function getSocketIp(client: Socket): string {
-  const xff = client.handshake.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.length > 0) {
-    return xff.split(',')[0].trim();
+  if (process.env.TRUST_PROXY === 'true') {
+    const xff = client.handshake.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.length > 0) {
+      return xff.split(',')[0].trim();
+    }
   }
   return client.handshake.address ?? 'unknown';
 }

@@ -9,3 +9,13 @@ backend/dist/
 # SQLite local dev database (created by `prisma migrate dev`)
 *.db
 *.db-journal
+
+# Backend uploads (avatars)
+backend/uploads/
+
+# Log files
+*.log
+
+# Local AI-tooling artifacts (never commit)
+.sandbox-bridge-manifest.json
+health-check.js

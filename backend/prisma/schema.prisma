@@ -1,7 +1,6 @@
 // Prisma schema for ft_transcendence backend
-// Auth + Lobbies scope: the User model is the minimal set of fields required
-// by the register / login / JWT feature, plus the Lobby + LobbyMember models
-// that back the lobby-rooms feature.
+// Auth + Lobbies + Profile + Friends + Chat scope.
+// All models wire-compatible with SQLite (local dev) and Postgres (prod).
 
 generator client {
   provider = "prisma-client-js"
@@ -32,6 +31,9 @@ model User {
   displayName  String   @default("Player")
   /// bcrypt hash of the password. NEVER returned by any endpoint.
   passwordHash String
+  /// Avatar URL (null = use default avatar). Stored as a relative path
+  /// (e.g. "/uploads/avatars/<userId>-<ts>.png") served by express.static.
+  avatarUrl    String?
   /// Creation timestamp.
   createdAt    DateTime @default(now())
   /// Last-update timestamp, managed by Prisma.
@@ -44,6 +46,17 @@ model User {
   hostedLobbies    Lobby[]        @relation("LobbyHost")
   /// Lobbies this user has joined (including ones they host).
   lobbyMemberships LobbyMember[]  @relation("LobbyMembers")
+
+  /// Friendships this user initiated (as requester).
+  friendshipsRequested Friendship[] @relation("FriendshipRequester")
+  /// Friendships this user received (as addressee).
+  friendshipsReceived  Friendship[] @relation("FriendshipAddressee")
+  /// Messages this user sent.
+  messagesSent         Message[]    @relation("MessageSender")
+  /// Messages this user received.
+  messagesReceived     Message[]    @relation("MessageReceiver")
+  /// Game results recorded for this user (wins, losses, draws).
+  gameResults          GameResult[] @relation("GameResults")
 
   @@map("users")
 }
@@ -135,4 +148,96 @@ model LobbyMember {
   @@index([lobbyId])
   @@index([userId])
   @@map("lobby_members")
+}
+
+/// A friendship relationship between two users.
+///
+/// Directional: `requesterId` sent the request, `addresseeId` received it.
+/// One row per relationship (not two). `@@unique` prevents duplicate requests.
+/// Status transitions: PENDING → ACCEPTED (friends) or PENDING → BLOCKED.
+/// To unfriend, the row is deleted.
+model Friendship {
+  /// Auto-incremented primary key.
+  id           Int      @id @default(autoincrement())
+  /// The user who sent the friend request. UUID FK → User.id.
+  requesterId  String
+  /// The user who received the friend request. UUID FK → User.id.
+  addresseeId  String
+  /// PENDING (awaiting response) | ACCEPTED (friends) | BLOCKED (addressee blocked requester).
+  /// Plain string (not enum) for SQLite/Postgres wire-compatibility.
+  status       String   @default("PENDING")
+  /// Creation timestamp.
+  createdAt    DateTime @default(now())
+  /// Last-update timestamp, managed by Prisma.
+  updatedAt    DateTime @updatedAt
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  /// One friendship row per requester-addressee pair.
+  @@unique([requesterId, addresseeId])
+  /// Optimize "incoming requests for me" query.
+  @@index([addresseeId, status])
+  /// Optimize "my friends" query.
+  @@index([requesterId, status])
+  @@map("friendships")
+}
+
+/// A direct message between two users.
+///
+/// `senderId` sent the message, `receiverId` received it. Messages are
+/// always between exactly two users (no group chat in this phase).
+/// `readAt` is null until the receiver opens the conversation.
+model Message {
+  /// Auto-incremented primary key.
+  id         Int      @id @default(autoincrement())
+  /// The sender. UUID FK → User.id.
+  senderId   String
+  /// The receiver. UUID FK → User.id.
+  receiverId String
+  /// Message content. Max 1000 chars (enforced in DTO). Stored as-is;
+  /// rendered with React's default escaping (no dangerouslySetInnerHTML).
+  content    String
+  /// When the receiver read the message. Null = unread.
+  readAt     DateTime?
+  /// Creation timestamp.
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  /// Optimize "my unread inbox" query.
+  @@index([receiverId, readAt])
+  /// Optimize "conversation thread with user X" query.
+  @@index([senderId, receiverId])
+  @@map("messages")
+}
+
+/// A recorded game result for a user (for profile stats).
+///
+/// Created when a game ends. Used by the profile stats endpoint to show
+/// wins/losses/draws per game type. The actual game result tracking will be
+/// wired up when the game gateways are integrated with the lobby system.
+model GameResult {
+  /// Auto-incremented primary key.
+  id        Int      @id @default(autoincrement())
+  /// The user this result belongs to. UUID FK → User.id.
+  userId    String
+  /// Game slug (e.g. "minesweeper", "super-tic-tac-toe").
+  game      String
+  /// Result: "win" | "loss" | "draw".
+  /// Plain string (not enum) for SQLite/Postgres wire-compatibility.
+  result    String
+  /// Optional score (e.g. time to clear minesweeper, moves in tic-tac-toe).
+  score     Int?
+  /// When the game was played.
+  playedAt  DateTime @default(now())
+
+  user      User     @relation("GameResults", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Optimize "stats for user X" query.
+  @@index([userId, game])
+  /// Optimize "leaderboard for game X" query.
+  @@index([game, result])
+  @@map("game_results")
 }
