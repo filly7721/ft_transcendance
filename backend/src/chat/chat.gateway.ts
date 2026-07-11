@@ -97,7 +97,7 @@ export class ChatGateway
 
     // C2: per-IP connection cap.
     const ip = getSocketIp(client);
-    if (!this.rateLimiter.tryAcquire(ip)) {
+    if (!this.rateLimiter.tryAcquire('chat', ip)) {
       client.emit('chat:error', { reason: 'rate_limited' });
       client.disconnect(true);
       return;
@@ -122,7 +122,7 @@ export class ChatGateway
     if (!userId) return;
 
     // C2: release the connection slot.
-    if (ip) this.rateLimiter.release(ip);
+    if (ip) this.rateLimiter.release('chat', ip);
 
     // Clear idle timer.
     this.clearIdleTimer(userId, client.id);

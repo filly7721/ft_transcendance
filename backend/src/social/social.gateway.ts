@@ -76,7 +76,7 @@ export class SocialGateway
 
     // C2: per-IP connection cap
     const ip = getSocketIp(client);
-    if (!this.rateLimiter.tryAcquire(ip)) {
+    if (!this.rateLimiter.tryAcquire('social', ip)) {
       client.emit('social:error', { reason: 'rate_limited' });
       client.disconnect(true);
       return;
@@ -95,7 +95,7 @@ export class SocialGateway
     const userId = (client.data as { userId?: string }).userId;
     const ip = (client.data as { ip?: string }).ip;
     if (!userId) return;
-    if (ip) this.rateLimiter.release(ip);
+    if (ip) this.rateLimiter.release('social', ip);
 
     const wasOnline = this.presence.isOnline(userId);
     this.presence.disconnect(userId, client.id);

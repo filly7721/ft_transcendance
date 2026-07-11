@@ -116,7 +116,7 @@ export class SuperTttGateway
 
     // C2: per-IP connection cap.
     const ip = getSocketIp(client);
-    if (!this.rateLimiter.tryAcquire(ip)) {
+    if (!this.rateLimiter.tryAcquire('super-tic-tac-toe', ip)) {
       client.emit('game:error', { reason: 'rate_limited' });
       client.disconnect(true);
       return;
@@ -132,7 +132,7 @@ export class SuperTttGateway
     if (seat === -1) {
       this.logger.warn(`rejecting ${client.id}: lobby full`);
       client.emit('game:error', { reason: 'lobby_full' });
-      this.rateLimiter.release(ip);
+      this.rateLimiter.release('super-tic-tac-toe', ip);
       client.disconnect(true);
       return;
     }
@@ -160,7 +160,7 @@ export class SuperTttGateway
 
     // C2: release the connection slot.
     const ip = (client.data as { ip?: string }).ip;
-    if (ip) this.rateLimiter.release(ip);
+    if (ip) this.rateLimiter.release('super-tic-tac-toe', ip);
 
     const survivor = this.seats[1 - seat];
     this.resetLobby();
