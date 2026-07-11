@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -11,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { ProfileService } from './profile.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -19,8 +19,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 
-/** Allowed avatar MIME types. */
-const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp'];
+/**
+ * Allowed avatar MIME types, mapped to the extension the file is STORED
+ * with. The stored extension is always derived from this map — never from
+ * the client-supplied filename, which would let an upload claim image/png
+ * but land on disk as ".html".
+ */
+const EXT_BY_MIME: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+};
 
 /**
  * Profile endpoints.
@@ -59,7 +68,7 @@ export class ProfileController {
         destination: './uploads/avatars',
         filename: (req, file, cb) => {
           const userId = (req.user as { id?: string })?.id ?? 'unknown';
-          const ext = extname(file.originalname) || '.png';
+          const ext = EXT_BY_MIME[file.mimetype] ?? '.png';
           cb(null, `${userId}-${Date.now()}${ext}`);
         },
       }),
@@ -67,10 +76,11 @@ export class ProfileController {
         fileSize: 2 * 1024 * 1024, // 2MB
       },
       fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME.includes(file.mimetype)) {
+        if (!(file.mimetype in EXT_BY_MIME)) {
+          // BadRequestException so the client gets a 400, not a 500.
           cb(
-            new Error(
-              `invalid file type: ${file.mimetype}. Allowed: ${ALLOWED_MIME.join(', ')}`,
+            new BadRequestException(
+              `invalid file type: ${file.mimetype}. Allowed: ${Object.keys(EXT_BY_MIME).join(', ')}`,
             ),
             false,
           );
@@ -85,7 +95,7 @@ export class ProfileController {
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ avatarUrl: string }> {
     if (!file) {
-      throw new Error('no file uploaded');
+      throw new BadRequestException('no file uploaded');
     }
     return this.profile.saveAvatarUrl(user.id, file.filename);
   }
