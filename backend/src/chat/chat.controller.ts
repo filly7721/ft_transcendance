@@ -3,13 +3,14 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ChatService } from './chat.service';
-import { SendMessageDto } from './dto/send-message.dto';
+import { SendMessageBodyDto } from './dto/send-message.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -44,10 +45,11 @@ export class ChatController {
   getHistory(
     @CurrentUser() user: AuthenticatedUser,
     @Param('login') login: string,
-    @Query('cursor') cursor?: string,
+    // ParseIntPipe rejects garbage like ?cursor=abc with a 400 instead of
+    // letting NaN reach Prisma and blow up as a 500.
+    @Query('cursor', new ParseIntPipe({ optional: true })) cursor?: number,
   ) {
-    const cursorNum = cursor ? Number(cursor) : null;
-    return this.chat.getHistory(user.id, login, cursorNum);
+    return this.chat.getHistory(user.id, login, cursor ?? null);
   }
 
   @Post(':login')
@@ -55,7 +57,7 @@ export class ChatController {
   async sendMessage(
     @CurrentUser() user: AuthenticatedUser,
     @Param('login') login: string,
-    @Body() dto: Pick<SendMessageDto, 'content'>,
+    @Body() dto: SendMessageBodyDto,
   ) {
     return this.chat.sendDirectMessage(user.id, login, dto.content);
   }
