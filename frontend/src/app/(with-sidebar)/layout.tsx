@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
+import { ChatWidget } from "@/components/chat/ChatWidget";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 // Route group layout: everything in (with-sidebar) gets the sidebar.
@@ -24,6 +25,7 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
     <>
       <Sidebar />
       <main className="min-w-0 flex-1">{children}</main>
+      <ChatWidget />
     </>
   );
 }
