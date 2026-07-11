@@ -131,16 +131,34 @@ export class ChatService {
       if (p.senderId !== userId) partnerIds.add(p.senderId);
       if (p.receiverId !== userId) partnerIds.add(p.receiverId);
     }
+    if (partnerIds.size === 0) return [];
 
-    const conversations: ConversationResponse[] = [];
-    for (const partnerId of partnerIds) {
-      const partner = await this.prisma.user.findUnique({
-        where: { id: partnerId },
-        select: { login: true, displayName: true, avatarUrl: true },
-      });
-      if (!partner) continue;
+    // Batch the lookups instead of querying per partner: one query for all
+    // partner profiles, one for the unread counts, one for our own login,
+    // and one findFirst per partner for the newest message (run in
+    // parallel — Prisma has no distinct-on to fold these into one).
+    const [partnerRows, unreadGroups, me] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: [...partnerIds] } },
+        select: { id: true, login: true, displayName: true, avatarUrl: true },
+      }),
+      this.prisma.message.groupBy({
+        by: ['senderId'],
+        where: { receiverId: userId, readAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { login: true },
+      }),
+    ]);
+    const partnersById = new Map(partnerRows.map((p) => [p.id, p]));
+    const unreadBySender = new Map(
+      unreadGroups.map((g) => [g.senderId, g._count._all]),
+    );
 
-      const [lastMsg, unreadCount] = await Promise.all([
+    const lastMessages = await Promise.all(
+      [...partnerIds].map((partnerId) =>
         this.prisma.message.findFirst({
           where: {
             OR: [
@@ -148,17 +166,17 @@ export class ChatService {
               { senderId: partnerId, receiverId: userId },
             ],
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { id: 'desc' },
           select: { content: true, senderId: true, createdAt: true },
         }),
-        this.prisma.message.count({
-          where: { senderId: partnerId, receiverId: userId, readAt: null },
-        }),
-      ]);
+      ),
+    );
 
-      if (!lastMsg) continue;
-
-      const sender = lastMsg.senderId === userId ? (await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { login: true } })).login : partner.login;
+    const conversations: ConversationResponse[] = [];
+    [...partnerIds].forEach((partnerId, i) => {
+      const partner = partnersById.get(partnerId);
+      const lastMsg = lastMessages[i];
+      if (!partner || !lastMsg) return;
 
       conversations.push({
         peerLogin: partner.login,
@@ -166,12 +184,12 @@ export class ChatService {
         peerAvatarUrl: partner.avatarUrl,
         lastMessage: {
           content: lastMsg.content,
-          senderLogin: sender,
+          senderLogin: lastMsg.senderId === userId ? me.login : partner.login,
           createdAt: lastMsg.createdAt,
         },
-        unreadCount,
+        unreadCount: unreadBySender.get(partnerId) ?? 0,
       });
-    }
+    });
 
     // Sort by last message time, newest first.
     conversations.sort(
