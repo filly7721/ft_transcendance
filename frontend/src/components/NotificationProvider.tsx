@@ -76,10 +76,11 @@ export default function NotificationProvider({ children }: { children: React.Rea
     });
 
     s.on("connect", () => {
-      // Request initial state
-      s.emit("social:state", {}, (ack: { ok: boolean; data?: { onlineFriends: string[]; pendingRequests: number } }) => {
+      // Request initial state. onlineFriendIds carries user IDs — the same
+      // identifier presence:update events carry, so the Set stays uniform.
+      s.emit("social:state", {}, (ack: { ok: boolean; data?: { onlineFriendIds: string[]; pendingRequests: number } }) => {
         if (ack.ok && ack.data) {
-          setOnlineFriendIds(new Set(ack.data.onlineFriends));
+          setOnlineFriendIds(new Set(ack.data.onlineFriendIds));
           setFriendRequestCount(ack.data.pendingRequests);
           // Notify pages that presence data is available
           window.dispatchEvent(new CustomEvent("presence:sync"));
@@ -115,11 +116,18 @@ export default function NotificationProvider({ children }: { children: React.Rea
       window.dispatchEvent(new CustomEvent("profile:update"));
     });
 
+    // The ChatPanel dispatches this window event whenever a message
+    // arrives, so the unread badge updates instantly instead of waiting
+    // for the next poll.
+    const onChatMessage = () => refresh();
+    window.addEventListener("chat:message", onChatMessage);
+
     // Poll unread chat count every 30s as a fallback
     const interval = setInterval(refresh, 30_000);
 
     return () => {
       s.disconnect();
+      window.removeEventListener("chat:message", onChatMessage);
       clearInterval(interval);
     };
   }, [refresh]);

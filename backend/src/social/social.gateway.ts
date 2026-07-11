@@ -30,7 +30,7 @@ import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
  *   friends:accept      { login } — your friend request was accepted
  *
  * The frontend can also request the current state:
- *   social:state → ack with { onlineFriends: string[], pendingRequests: number }
+ *   social:state → ack with { onlineFriendIds: string[], pendingRequests: number }
  *
  * This gateway shares the PresenceService with the chat gateway (both @Global),
  * so connecting to either /chat or /social registers the user as online.
@@ -111,11 +111,15 @@ export class SocialGateway
   /**
    * Client requests current state: online friends + pending request count.
    * Useful on initial connect to sync without a REST call.
+   *
+   * `onlineFriendIds` carries user IDs, matching what presence:update
+   * events carry — the client keeps one Set and must never have to mix
+   * logins and IDs in it.
    */
   @SubscribeMessage('social:state')
   async handleState(
     @ConnectedSocket() client: Socket,
-  ): Promise<{ ok: true; data: { onlineFriends: string[]; pendingRequests: number } } | MoveAck> {
+  ): Promise<{ ok: true; data: { onlineFriendIds: string[]; pendingRequests: number } } | MoveAck> {
     const userId = (client.data as { userId?: string }).userId;
     if (!userId) return { ok: false, reason: 'not authenticated' };
 
@@ -127,7 +131,7 @@ export class SocialGateway
     return {
       ok: true,
       data: {
-        onlineFriends: friendList.filter((f) => f.online).map((f) => f.login),
+        onlineFriendIds: friendList.filter((f) => f.online).map((f) => f.id),
         pendingRequests: requests.incoming.length,
       },
     };
