@@ -39,7 +39,7 @@ export function createInitialState(): SuperTttState {
   };
 }
 
-function findLineWinner(values: readonly (Mark | "draw" | null)[]): Mark | null {
+export function findLineWinner(values: readonly (Mark | "draw" | null)[]): Mark | null {
   for (const [a, b, c] of LINES) {
     const v = values[a];
     if ((v === "X" || v === "O") && v === values[b] && v === values[c]) return v;

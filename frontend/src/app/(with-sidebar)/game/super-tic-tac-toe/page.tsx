@@ -11,7 +11,7 @@ export default function SuperTicTacToeGame() {
           SUPER TTT
         </h1>
         <p className="font-mono text-xs uppercase tracking-widest text-neon-yellow animate-blink">
-          DEV PREVIEW
+          ONLINE VERSUS
         </p>
       </div>
 
