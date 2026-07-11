@@ -77,6 +77,10 @@ interface GameOverEvent {
 interface Room {
   /** seats[i] is player i+1's socket id. */
   seats: (string | null)[];
+  /** userIds[i] is player i+1's user id — the stable seat key, so a
+   *  reconnect (refresh, dev remount, newer tab) reclaims the seat instead
+   *  of sitting the same user down as their own opponent. */
+  userIds: (string | null)[];
   /** logins[i] is player i+1's public login, for opponent display. */
   logins: (string | null)[];
   engine: SuperTttEngine;
@@ -156,6 +160,31 @@ export class SuperTttGateway
       this.rooms.set(code, room);
     }
 
+    // Same user again (refresh, dev remount, newer tab): reclaim the seat
+    // and kick the stale socket, instead of seating them as their own
+    // opponent or bouncing them off their own full room.
+    const ownSeat = room.userIds.indexOf(payload.sub);
+    if (ownSeat !== -1) {
+      const staleId = room.seats[ownSeat];
+      room.seats[ownSeat] = client.id;
+      room.logins[ownSeat] = payload.login;
+      client.data.room = code;
+      await client.join(code);
+      client.emit('game:joined', this.joinedEvent(room, ownSeat));
+      if (room.status === 'playing') {
+        // Re-announce the running game so the rejoining client resumes
+        // (the joined snapshot already carries the full board).
+        client.emit('game:start', this.startEvent(room));
+      }
+      if (staleId && staleId !== client.id) {
+        this.server.sockets.get(staleId)?.disconnect(true);
+      }
+      this.logger.log(
+        `client ${client.id} (login=${payload.login}) reclaimed seat ${ownSeat + 1} in room ${code}`,
+      );
+      return;
+    }
+
     const seat = room.seats.indexOf(null);
     if (seat === -1) {
       this.logger.warn(`rejecting ${client.id}: room ${code} is full`);
@@ -165,6 +194,7 @@ export class SuperTttGateway
     }
 
     room.seats[seat] = client.id;
+    room.userIds[seat] = payload.sub;
     room.logins[seat] = payload.login;
     client.data.room = code;
     await client.join(code);
@@ -178,12 +208,7 @@ export class SuperTttGateway
       room.status = 'playing';
       this.clearReadyTimer(room);
       this.startInactivityTimer(code, room);
-      this.server.to(code).emit('game:start', {
-        players: room.logins.map((login, i) => ({
-          player: (i + 1) as PlayerIndex,
-          login,
-        })),
-      });
+      this.server.to(code).emit('game:start', this.startEvent(room));
       this.logger.log(`room ${code}: both players connected, game started`);
       // Hide the lobby from the browser now that its game is running.
       void this.lobbies.markInProgress(code);
@@ -205,6 +230,7 @@ export class SuperTttGateway
     const { code, room, seat } = found;
 
     const survivor = room.seats[1 - seat];
+    const survivorUserId = room.userIds[1 - seat];
     const survivorLogin = room.logins[1 - seat];
     this.clearReadyTimer(room);
     this.clearInactivityTimer(room);
@@ -220,6 +246,7 @@ export class SuperTttGateway
     // Whoever stayed becomes player 1 of a fresh board in the same room; the
     // frontend treats a repeated game:joined as a full reset.
     room.seats = [survivor, null];
+    room.userIds = [survivorUserId, null];
     room.logins = [survivorLogin, null];
     room.engine = new SuperTttEngine();
     room.status = 'waiting';
@@ -288,9 +315,19 @@ export class SuperTttGateway
 
   // ----- room lookup ---------------------------------------------------------
 
-  /** Validate and normalize the lobby code from the connection handshake. */
+  /**
+   * Validate and normalize the lobby code from the connection handshake.
+   *
+   * Read from `handshake.auth` first: auth is per-socket, while `query` is a
+   * manager-level option in socket.io-client — a client reusing a cached
+   * manager (SPA navigation, a second namespace on the same origin) silently
+   * keeps the FIRST connection's query, which would drop players into the
+   * wrong room. The query fallback stays for hand-rolled clients.
+   */
   private roomCodeOf(client: Socket): string | null {
-    const raw = client.handshake.query.lobby;
+    const raw =
+      (client.handshake.auth as { lobby?: unknown } | undefined)?.lobby ??
+      client.handshake.query.lobby;
     return typeof raw === 'string' && ROOM_CODE_RE.test(raw) ? raw : null;
   }
 
@@ -310,6 +347,7 @@ export class SuperTttGateway
   private createRoom(): Room {
     return {
       seats: [null, null],
+      userIds: [null, null],
       logins: [null, null],
       engine: new SuperTttEngine(),
       status: 'waiting',
@@ -376,6 +414,17 @@ export class SuperTttGateway
     return {
       player: (seat + 1) as PlayerIndex,
       board: room.engine.snapshot(),
+    };
+  }
+
+  private startEvent(room: Room): {
+    players: { player: PlayerIndex; login: string | null }[];
+  } {
+    return {
+      players: room.logins.map((login, i) => ({
+        player: (i + 1) as PlayerIndex,
+        login,
+      })),
     };
   }
 }
