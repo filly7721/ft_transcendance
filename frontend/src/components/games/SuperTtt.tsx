@@ -1,68 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
-  applyMove,
-  createInitialState,
   isBoardPlayable,
-  isValidMove,
   type Mark,
   type SuperTttState,
 } from "@/lib/superTtt";
+import { useSuperTtt, type GamePhase } from "@/lib/useSuperTtt";
 
-// The playable super-tic-tac-toe game for one lobby. Moves travel through
-// sendMove(), which validates locally so an illegal or out-of-turn move is
-// never sent to the backend; the server stays authoritative and its echoed
-// moves are applied via applyServerMove().
+// The playable super-tic-tac-toe game for one lobby. All game state lives in
+// the useSuperTtt hook: clicks are validated locally and sent to the server,
+// and the board only changes when the server echoes validated moves back.
 export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
-  const [gameState, setGameState] = useState<SuperTttState>(createInitialState);
+  const { phase, myMark, state, notice, sendMove } = useSuperTtt(lobbyCode);
 
-  // TODO(backend): mark is assigned by the server when joining the lobby.
-  // Until then both marks are "ours" so the game is playable locally.
-  const myMark: Mark = gameState.currentPlayer;
-
-  useEffect(() => {
-    // TODO(backend): open the websocket for this lobby, e.g.
-    //   const ws = new WebSocket(`${WS_URL}/game/super-tic-tac-toe/${lobbyCode}`);
-    //   ws.onmessage = (event) => {
-    //     const msg = JSON.parse(event.data);
-    //     if (msg.type === "move") applyServerMove(msg.boardIdx, msg.cellIdx);
-    //     // also expected: player-assignment (sets myMark), full-state resync,
-    //     // opponent joined/left, game over
-    //   };
-    //   return () => ws.close();
-  }, [lobbyCode]);
-
-  // Applied when the server broadcasts a move (either player's, already
-  // validated server-side) — no turn check here, the server is authoritative.
-  function applyServerMove(boardIdx: number, cellIdx: number) {
-    setGameState((state) => applyMove(state, boardIdx, cellIdx));
-  }
-
-  function sendMove(boardIdx: number, cellIdx: number) {
-    // Client-side validation: only our turn, only the active board, only an
-    // empty cell — anything else never reaches the websocket.
-    if (gameState.currentPlayer !== myMark) return;
-    if (!isValidMove(gameState, boardIdx, cellIdx)) return;
-
-    // TODO(backend): ws.send(JSON.stringify({ type: "move", boardIdx, cellIdx }));
-    // TODO(backend): remove this local apply once the server echoes moves back.
-    applyServerMove(boardIdx, cellIdx);
-  }
+  // Boards are clickable only while the game runs and it is our turn; the
+  // hook re-checks every move anyway before emitting it.
+  const myTurn = phase === "playing" && myMark === state.currentPlayer;
 
   return (
     <div className="flex flex-col items-center gap-10">
-      <StatusBar state={gameState} lobbyCode={lobbyCode} />
+      <StatusBar
+        state={state}
+        lobbyCode={lobbyCode}
+        phase={phase}
+        myMark={myMark}
+      />
+
+      {notice !== null && (
+        <p className="font-mono text-xs uppercase tracking-widest text-neon-yellow">
+          {notice}
+        </p>
+      )}
+
       <div className="bg-arcade-card  mt-2 p-4 rounded-xl">
         <div className="grid grid-cols-3 gap-1 bg-[radial-gradient(circle_closest-side,var(--color-arcade-border)_95%,transparent_100%)]">
-          {gameState.boards.map((cells, boardIdx) => (
+          {state.boards.map((cells, boardIdx) => (
             <MiniBoard
               key={boardIdx}
               cells={cells}
-              result={gameState.boardResults[boardIdx]}
-              playable={isBoardPlayable(gameState, boardIdx)}
+              result={state.boardResults[boardIdx]}
+              playable={myTurn && isBoardPlayable(state, boardIdx)}
               onCellClick={(cellIdx) => sendMove(boardIdx, cellIdx)}
-              currentPlayer={gameState.currentPlayer}
+              currentPlayer={state.currentPlayer}
             />
           ))}
         </div>
@@ -74,9 +53,13 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
 function StatusBar({
   state,
   lobbyCode,
+  phase,
+  myMark,
 }: {
   state: SuperTttState;
   lobbyCode: string;
+  phase: GamePhase;
+  myMark: Mark | null;
 }) {
   return (
     <div className="flex items-center gap-8 border border-arcade-border bg-arcade-panel px-8 py-4">
@@ -88,34 +71,7 @@ function StatusBar({
       </div>
 
       <div className="text-center font-mono text-xs px-4 border-x border-arcade-border">
-        {state.result === null ? (
-          <>
-            <div
-              className={`font-arcade text-xs animate-blink ${
-                state.currentPlayer === "X" ? "glow-cyan" : "glow-magenta"
-              }`}
-            >
-              {state.currentPlayer} TURN
-            </div>
-            <div className="text-arcade-muted mt-1">
-              {state.activeBoard === null
-                ? "ANY BOARD"
-                : `BOARD ${state.activeBoard + 1}`}
-            </div>
-          </>
-        ) : (
-          <div
-            className={`font-arcade text-xs ${
-              state.result === "X"
-                ? "glow-cyan"
-                : state.result === "O"
-                  ? "glow-magenta"
-                  : "text-arcade-muted"
-            }`}
-          >
-            {state.result === "draw" ? "DRAW" : `${state.result} WINS`}
-          </div>
-        )}
+        <PhaseStatus state={state} phase={phase} myMark={myMark} />
       </div>
 
       <div className="text-center">
@@ -131,6 +87,79 @@ function StatusBar({
         </div>
       </div>
     </div>
+  );
+}
+
+// The middle panel of the status bar: connection progress while we are not
+// in a game yet, then whose turn it is, then the result.
+function PhaseStatus({
+  state,
+  phase,
+  myMark,
+}: {
+  state: SuperTttState;
+  phase: GamePhase;
+  myMark: Mark | null;
+}) {
+  if (phase === "connecting") {
+    return (
+      <div className="font-arcade text-xs text-arcade-muted animate-blink">
+        CONNECTING...
+      </div>
+    );
+  }
+  if (phase === "waiting") {
+    return (
+      <>
+        <div className="font-arcade text-xs text-arcade-muted animate-blink">
+          WAITING FOR PLAYER 2
+        </div>
+        {myMark !== null && (
+          <div className="text-arcade-muted mt-1">YOU ARE {myMark}</div>
+        )}
+      </>
+    );
+  }
+  if (phase === "rejected") {
+    return (
+      <div className="font-arcade text-xs text-arcade-muted">NOT CONNECTED</div>
+    );
+  }
+
+  if (state.result !== null) {
+    const youWon = state.result === myMark;
+    return (
+      <div
+        className={`font-arcade text-xs ${
+          state.result === "X"
+            ? "glow-cyan"
+            : state.result === "O"
+              ? "glow-magenta"
+              : "text-arcade-muted"
+        }`}
+      >
+        {state.result === "draw"
+          ? "DRAW"
+          : `${state.result} WINS${youWon ? " - YOU!" : ""}`}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div
+        className={`font-arcade text-xs animate-blink ${
+          state.currentPlayer === "X" ? "glow-cyan" : "glow-magenta"
+        }`}
+      >
+        {state.currentPlayer === myMark ? "YOUR TURN" : `${state.currentPlayer} TURN`}
+      </div>
+      <div className="text-arcade-muted mt-1">
+        {state.activeBoard === null
+          ? "ANY BOARD"
+          : `BOARD ${state.activeBoard + 1}`}
+      </div>
+    </>
   );
 }
 
