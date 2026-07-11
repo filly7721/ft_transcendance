@@ -63,9 +63,13 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
   const seatRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // The room code rides in `auth`, not `query`: auth is per-socket, while
+    // query belongs to the manager socket.io-client caches per origin — a
+    // reused manager (SPA navigation, chat/social sockets on the same
+    // origin) would silently resend the FIRST connection's query and drop
+    // us into the wrong room.
     const socket = io(SOCKET_URL, {
-      auth: { token: getToken() },
-      query: { lobby: lobbyCode },
+      auth: { token: getToken(), lobby: lobbyCode },
       transports: ["websocket"],
     });
     socketRef.current = socket;
