@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { io, Socket } from "socket.io-client";
+import { io } from "socket.io-client";
 import { getToken } from "@/lib/auth-storage";
 import { fetchFriendRequests } from "@/lib/friends";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const SOCIAL_WS = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/social`;
 
@@ -39,6 +40,10 @@ const NotificationContext = createContext<NotificationState | null>(null);
  *   - "chat:message"     — a new chat message was received
  */
 export default function NotificationProvider({ children }: { children: React.ReactNode }) {
+  // Auth status drives the socket lifecycle: connecting registers the user
+  // as online (PresenceService), so the connection must follow login/logout
+  // in this session — not just whether a token existed at page load.
+  const { status } = useAuth();
   const [friendRequestCount, setFriendRequestCount] = useState(0);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [onlineFriendIds, setOnlineFriendIds] = useState<Set<string>>(new Set());
@@ -60,13 +65,23 @@ export default function NotificationProvider({ children }: { children: React.Rea
     }
   }, []);
 
-  // Initial REST load
+  // Initial REST load — re-runs when the user logs in mid-session.
   useEffect(() => {
+    if (status !== "authenticated") return;
     refresh();
-  }, [refresh]);
+  }, [refresh, status]);
 
-  // WS connection for real-time updates
+  // WS connection for real-time updates. Depends on auth status: logging in
+  // opens the socket right away (before this fix, a freshly logged-in user
+  // was invisible to friends until they hard-refreshed the page), and
+  // logging out closes it (stops appearing online) and clears the badges.
   useEffect(() => {
+    if (status !== "authenticated") {
+      setFriendRequestCount(0);
+      setUnreadChatCount(0);
+      setOnlineFriendIds(new Set());
+      return;
+    }
     const token = getToken();
     if (!token) return;
 
@@ -130,7 +145,7 @@ export default function NotificationProvider({ children }: { children: React.Rea
       window.removeEventListener("chat:message", onChatMessage);
       clearInterval(interval);
     };
-  }, [refresh]);
+  }, [refresh, status]);
 
   return (
     <NotificationContext.Provider
