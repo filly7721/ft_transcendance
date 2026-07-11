@@ -72,8 +72,8 @@ export class ChatGateway
   @WebSocketServer()
   private readonly server: Namespace;
 
-  /** userId → Set of idle timers (one per socket, cleared on activity). */
-  private readonly idleTimers = new Map<string, Set<NodeJS.Timeout>>();
+  /** socketId → idle timer, restarted whenever that socket shows activity. */
+  private readonly idleTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly jwt: JwtService,
@@ -91,17 +91,18 @@ export class ChatGateway
       client.disconnect(true);
       return;
     }
-    const userId = payload.sub;
-    client.data.userId = userId;
-    client.data.login = payload.login;
-
-    // C2: per-IP connection cap.
+    // C2: per-IP connection cap. Checked before any client.data is set so
+    // a rejected socket's handleDisconnect is a clean no-op (no slot to
+    // release, no presence to unregister).
     const ip = getSocketIp(client);
     if (!this.rateLimiter.tryAcquire('chat', ip)) {
       client.emit('chat:error', { reason: 'rate_limited' });
       client.disconnect(true);
       return;
     }
+
+    const userId = payload.sub;
+    client.data.userId = userId;
     client.data.ip = ip;
 
     this.logger.log(
@@ -110,7 +111,7 @@ export class ChatGateway
 
     // Register in PresenceService.
     this.presence.connect(userId, client.id);
-    this.startIdleTimer(userId, client.id);
+    this.startIdleTimer(client.id);
 
     // Broadcast presence:update to online friends.
     await this.broadcastPresence(userId, true);
@@ -124,8 +125,8 @@ export class ChatGateway
     // C2: release the connection slot.
     if (ip) this.rateLimiter.release('chat', ip);
 
-    // Clear idle timer.
-    this.clearIdleTimer(userId, client.id);
+    // Clear this socket's idle timer.
+    this.clearIdleTimer(client.id);
 
     // Unregister from PresenceService.
     const wasOnline = this.presence.isOnline(userId);
@@ -158,7 +159,7 @@ export class ChatGateway
     }
 
     // Reset idle timer on activity.
-    this.restartIdleTimer(senderId, client.id);
+    this.restartIdleTimer(client.id);
 
     try {
       const message = await this.chat.sendDirectMessage(
@@ -167,10 +168,16 @@ export class ChatGateway
         payload.content,
       );
 
-      // Emit to the sender (ack) and to the receiver (if online).
-      const receiver = await this.findSocketByLogin(payload.receiverLogin);
-      if (receiver) {
-        this.server.to(receiver).emit('chat:message', message);
+      // Deliver to every socket of the receiver (all their tabs) and to
+      // the sender's other tabs; the sending socket gets it via the ack.
+      const receiverId = await this.chat.getUserIdByLogin(payload.receiverLogin);
+      if (receiverId) {
+        for (const id of await this.findSocketsByUserId(receiverId)) {
+          this.server.to(id).emit('chat:message', message);
+        }
+      }
+      for (const id of await this.findSocketsByUserId(senderId)) {
+        if (id !== client.id) this.server.to(id).emit('chat:message', message);
       }
 
       return { ok: true, message };
@@ -191,10 +198,16 @@ export class ChatGateway
       return { ok: false, reason: 'payload must be { receiverLogin }' };
     }
 
-    const senderLogin = (client.data as { login?: string }).login;
-    const receiverSocket = await this.findSocketByLogin(payload.receiverLogin);
-    if (receiverSocket) {
-      this.server.to(receiverSocket).emit('chat:typing', { senderLogin });
+    this.restartIdleTimer(client.id);
+
+    // Friends only — strangers must not receive typing indicators. The
+    // context also carries our current login fresh from the DB, so the
+    // event stays correct after a login rename.
+    const ctx = await this.chat.getPeerContext(senderId, payload.receiverLogin);
+    if (!ctx) return { ok: false, reason: 'you can only message your friends' };
+
+    for (const id of await this.findSocketsByUserId(ctx.peerId)) {
+      this.server.to(id).emit('chat:typing', { senderLogin: ctx.myLogin });
     }
     return { ok: true };
   }
@@ -210,13 +223,17 @@ export class ChatGateway
       return { ok: false, reason: 'payload must be { senderLogin }' };
     }
 
+    this.restartIdleTimer(client.id);
+
+    // Friends only, same as typing — and myLogin is DB-fresh.
+    const ctx = await this.chat.getPeerContext(userId, payload.senderLogin);
+    if (!ctx) return { ok: false, reason: 'you can only message your friends' };
+
     const result = await this.chat.markAsRead(userId, payload.senderLogin);
 
-    // Notify the sender that their messages were read.
-    const readerLogin = (client.data as { login?: string }).login;
-    const senderSocket = await this.findSocketByLogin(payload.senderLogin);
-    if (senderSocket) {
-      this.server.to(senderSocket).emit('chat:read-receipt', { readerLogin });
+    // Notify every tab of the sender that their messages were read.
+    for (const id of await this.findSocketsByUserId(ctx.peerId)) {
+      this.server.to(id).emit('chat:read-receipt', { readerLogin: ctx.myLogin });
     }
 
     return { ok: true, marked: result.marked };
@@ -234,6 +251,8 @@ export class ChatGateway
       return { ok: false, reason: 'payload must be { peerLogin, cursor? }' };
     }
 
+    this.restartIdleTimer(client.id);
+
     try {
       const history = await this.chat.getHistory(
         userId,
@@ -250,19 +269,21 @@ export class ChatGateway
   // ----- internals --------------------------------------------------------
 
   /**
-   * Find a socket ID by user login. Used to deliver messages/typing/read
-   * receipts to the right socket.
+   * Find ALL socket IDs belonging to a user (they may have several tabs).
+   * Routing is by user ID, never by login: the login in a socket's JWT
+   * goes stale when the user renames themselves, the ID never does.
    *
-   * Iterates all connected sockets in the namespace and matches on
-   * client.data.login. This is O(n) but n is small (connected users).
+   * Iterates all connected sockets in the namespace. O(n) but n is small
+   * (connected users).
    */
-  private async findSocketByLogin(login: string): Promise<string | null> {
+  private async findSocketsByUserId(userId: string): Promise<string[]> {
     const sockets = await this.server.fetchSockets();
+    const ids: string[] = [];
     for (const s of sockets) {
-      const data = s.data as { login?: string };
-      if (data.login === login) return s.id;
+      const data = s.data as { userId?: string };
+      if (data.userId === userId) ids.push(s.id);
     }
-    return null;
+    return ids;
   }
 
   /**
@@ -287,32 +308,26 @@ export class ChatGateway
 
   // ----- C3: idle timer management ----------------------------------------
 
-  private startIdleTimer(userId: string, socketId: string): void {
-    let timers = this.idleTimers.get(userId);
-    if (!timers) {
-      timers = new Set();
-      this.idleTimers.set(userId, timers);
-    }
+  private startIdleTimer(socketId: string): void {
     const timer = setTimeout(() => {
-      this.logger.warn(`idle timeout (30min) for ${userId} socket ${socketId}`);
+      this.logger.warn(`idle timeout (30min) for socket ${socketId}`);
+      this.idleTimers.delete(socketId);
       const s = this.server.sockets.get(socketId);
       s?.emit('chat:error', { reason: 'timeout' });
       s?.disconnect(true);
     }, IDLE_TIMEOUT_MS);
-    timers.add(timer);
+    this.idleTimers.set(socketId, timer);
   }
 
-  private clearIdleTimer(userId: string, socketId: string): void {
-    const timers = this.idleTimers.get(userId);
-    if (!timers) return;
-    for (const t of timers) {
-      clearTimeout(t);
-    }
-    this.idleTimers.delete(userId);
+  private clearIdleTimer(socketId: string): void {
+    const timer = this.idleTimers.get(socketId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.idleTimers.delete(socketId);
   }
 
-  private restartIdleTimer(userId: string, socketId: string): void {
-    this.clearIdleTimer(userId, socketId);
-    this.startIdleTimer(userId, socketId);
+  private restartIdleTimer(socketId: string): void {
+    this.clearIdleTimer(socketId);
+    this.startIdleTimer(socketId);
   }
 }
