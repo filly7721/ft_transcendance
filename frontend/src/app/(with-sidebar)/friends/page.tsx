@@ -80,10 +80,13 @@ export default function FriendsPage() {
     try { await unfriend(login); await reload(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
   }
 
-  // Map online status from NotificationProvider's onlineFriendIds (real-time)
+  // Online status: the REST response's flag is correct at fetch time, and
+  // onlineFriendIds layers real-time presence on top. Union of the two —
+  // a friend going offline triggers a presence:update, which reloads the
+  // REST list anyway.
   const friendsWithOnline = friends?.map((f) => ({
     ...f,
-    online: onlineFriendIds.has(f.id),
+    online: f.online || onlineFriendIds.has(f.id),
   })) ?? null;
 
   return (
