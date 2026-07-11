@@ -18,6 +18,7 @@ import {
   SuperTttEngine,
 } from './engine/superttt.engine';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import { LobbiesService } from '../lobbies/lobbies.service';
 
 /**
  * Super Tic-Tac-Toe WebSocket gateway.
@@ -115,6 +116,7 @@ export class SuperTttGateway
   constructor(
     private readonly jwt: JwtService,
     private readonly rateLimiter: WsRateLimiter,
+    private readonly lobbies: LobbiesService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -183,6 +185,8 @@ export class SuperTttGateway
         })),
       });
       this.logger.log(`room ${code}: both players connected, game started`);
+      // Hide the lobby from the browser now that its game is running.
+      void this.lobbies.markInProgress(code);
     } else {
       // C3: first player — start the ready timeout.
       this.startReadyTimer(code, room);
@@ -206,8 +210,9 @@ export class SuperTttGateway
     this.clearInactivityTimer(room);
 
     if (survivor === null) {
-      // Last player out — the room dies with them.
+      // Last player out — the room dies with them, and so does its lobby row.
       this.rooms.delete(code);
+      void this.lobbies.remove(code);
       this.logger.log(`client ${client.id} left, room ${code} removed`);
       return;
     }
@@ -356,6 +361,7 @@ export class SuperTttGateway
     this.clearReadyTimer(room);
     this.clearInactivityTimer(room);
     this.rooms.delete(code);
+    void this.lobbies.remove(code);
     for (const id of room.seats) {
       if (id) this.server.sockets.get(id)?.disconnect(true);
     }
