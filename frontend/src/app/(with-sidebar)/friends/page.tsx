@@ -38,15 +38,18 @@ export default function FriendsPage() {
     const handleFriendRequest = () => { reload(); };
     const handleFriendAccept = () => { reload(); };
     const handlePresence = () => { reload(); };
+    const handleProfileUpdate = () => { reload(); };
 
     window.addEventListener("friends:request", handleFriendRequest);
     window.addEventListener("friends:accept", handleFriendAccept);
     window.addEventListener("presence:update", handlePresence);
+    window.addEventListener("profile:update", handleProfileUpdate);
 
     return () => {
       window.removeEventListener("friends:request", handleFriendRequest);
       window.removeEventListener("friends:accept", handleFriendAccept);
       window.removeEventListener("presence:update", handlePresence);
+      window.removeEventListener("profile:update", handleProfileUpdate);
     };
   }, [reload]);
 

@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { publicUserSelect } from '../users/users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { SocialGateway } from '../social/social.gateway';
 
 /**
  * Shape of the public profile returned by `GET /users/:login`.
@@ -36,46 +43,62 @@ export type UpdatedProfile = {
 };
 
 /**
- * Profile service — handles profile updates, avatar uploads, and public
- * profile lookups.
+ * Profile service — handles profile updates (displayName, login, avatar),
+ * avatar uploads, and public profile lookups.
  *
- * Avatar files are saved to `uploads/avatars/` by multer's diskStorage
- * (configured in the controller). The service just stores the relative URL
- * (`/uploads/avatars/<filename>`) in the DB. The file is served by
- * express.static in main.ts.
+ * Injects SocialGateway via forwardRef to broadcast profile:update events
+ * to the user's friends when their login/displayName/avatar changes.
  */
 @Injectable()
 export class ProfileService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => SocialGateway))
+    private readonly social: SocialGateway,
+  ) {}
 
   /**
-   * Update the authenticated user's profile (displayName and/or avatarUrl).
+   * Update the authenticated user's profile (displayName, login, avatarUrl).
    * Returns the updated user (public shape, no passwordHash).
+   *
+   * If login is changing, checks uniqueness first (409 Conflict if taken).
+   * Broadcasts a profile:update to the user's friends after success.
    */
   async updateProfile(
     userId: string,
     dto: UpdateProfileDto,
   ): Promise<UpdatedProfile> {
-    const data: { displayName?: string; avatarUrl?: string } = {};
+    const data: { displayName?: string; login?: string; avatarUrl?: string } = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
     if (dto.avatarUrl !== undefined) data.avatarUrl = dto.avatarUrl;
 
-    return this.prisma.user.update({
+    // If login is changing, check uniqueness first.
+    if (dto.login !== undefined) {
+      const existing = await this.prisma.user.findUnique({
+        where: { login: dto.login },
+        select: { id: true },
+      });
+      if (existing && existing.id !== userId) {
+        throw new ConflictException(`login '${dto.login}' is already taken`);
+      }
+      data.login = dto.login;
+    }
+
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data,
       select: publicUserSelect,
-    }) as Promise<UpdatedProfile>;
+    }) as UpdatedProfile;
+
+    // Broadcast a profile:update to the user's friends so their friends list
+    // re-fetches and shows the new login/displayName.
+    void this.social.notifyProfileUpdate(userId);
+
+    return updated;
   }
 
   /**
    * Save the avatar URL after multer has written the file to disk.
-   *
-   * The file is already on disk (multer diskStorage handled it). This method
-   * just constructs the relative URL and updates the user's `avatarUrl`.
-   *
-   * @param userId The authenticated user's ID.
-   * @param filename The filename multer generated (e.g. "uuid-123456.png").
-   * @returns `{ avatarUrl: string }` — the relative path to the avatar.
    */
   async saveAvatarUrl(
     userId: string,
@@ -92,9 +115,7 @@ export class ProfileService {
 
   /**
    * Get a user's public profile by login.
-   *
-   * Returns: id, login, displayName, avatarUrl, createdAt, and basic stats
-   * (gamesPlayed, wins, losses, draws). Does NOT include email.
+   * Does NOT include email. Includes basic game stats.
    *
    * @throws NotFoundException if no user has that login.
    */
@@ -113,7 +134,6 @@ export class ProfileService {
       throw new NotFoundException(`user '${login}' not found`);
     }
 
-    // Aggregate game results for stats.
     const results = await this.prisma.gameResult.groupBy({
       by: ['result'],
       where: { userId: user.id },

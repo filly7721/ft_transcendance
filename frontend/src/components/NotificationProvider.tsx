@@ -107,8 +107,12 @@ export default function NotificationProvider({ children }: { children: React.Rea
 
     s.on("friends:accept", () => {
       refresh();
-      // Dispatch so the friends page can re-fetch + move the friend from pending to accepted
       window.dispatchEvent(new CustomEvent("friends:accept"));
+    });
+
+    s.on("profile:update", () => {
+      // A friend's profile (login/displayName/avatar) changed.
+      window.dispatchEvent(new CustomEvent("profile:update"));
     });
 
     // Poll unread chat count every 30s as a fallback
