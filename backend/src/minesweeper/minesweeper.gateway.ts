@@ -13,6 +13,7 @@ import { Namespace, Socket } from 'socket.io';
 import { MinesweeperEngine } from './engine/minesweeper.engine';
 import { DEFAULT_MAP } from './engine/maps';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import { LobbiesService } from '../lobbies/lobbies.service';
 
 /**
  * Minesweeper versus gateway, one race per lobby room.
@@ -88,6 +89,7 @@ export class MinesweeperGateway
   constructor(
     private readonly jwt: JwtService,
     private readonly rateLimiter: WsRateLimiter,
+    private readonly lobbies: LobbiesService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -151,6 +153,8 @@ export class MinesweeperGateway
         })),
       });
       this.logger.log(`room ${code}: both players connected, game started`);
+      // Hide the lobby from the browser now that its game is running.
+      void this.lobbies.markInProgress(code);
     }
   }
 
@@ -168,8 +172,9 @@ export class MinesweeperGateway
     const survivorLogin = room.logins[1 - seat];
 
     if (survivor === null) {
-      // Last player out — the room dies with them.
+      // Last player out — the room dies with them, and so does its lobby row.
       this.rooms.delete(code);
+      void this.lobbies.remove(code);
       this.logger.log(`client ${client.id} left, room ${code} removed`);
       return;
     }

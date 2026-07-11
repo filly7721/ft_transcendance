@@ -17,6 +17,7 @@ type LobbyWithRelations = Prisma.LobbyGetPayload<{
 /** Lobby statuses. Kept as plain strings (not a Prisma enum) so the schema
  *  stays wire-compatible with both SQLite and Postgres without extra setup. */
 const LOBBY_STATUS_WAITING = 'WAITING';
+const LOBBY_STATUS_IN_PROGRESS = 'IN_PROGRESS';
 
 /** Max room-code collision retries before giving up. 10 is absurdly safe: the
  *  code space is 10^9 and existing rows are tiny, so the chance of even one
@@ -121,6 +122,40 @@ export class LobbiesService {
       include: { members: true, host: true },
     });
     return this.serialize(updated);
+  }
+
+  /**
+   * Mark a lobby as IN_PROGRESS — called by the game gateways when both
+   * players connect. Hides the lobby from `list()` (which only shows
+   * WAITING) so nobody joins a room whose game already started.
+   *
+   * Best-effort: gateways also serve rooms whose code has no DB row (e.g.
+   * hand-typed dev codes), so a missing lobby is silently ignored.
+   */
+  async markInProgress(roomCode: string): Promise<void> {
+    try {
+      await this.prisma.lobby.update({
+        where: { id: roomCode },
+        data: { status: LOBBY_STATUS_IN_PROGRESS },
+      });
+    } catch {
+      // No such lobby row — nothing to mark.
+    }
+  }
+
+  /**
+   * Delete a lobby — called by the game gateways when the last player leaves
+   * the room, so finished/abandoned lobbies never linger in the browser.
+   * Members are removed by the LobbyMember onDelete cascade.
+   *
+   * Best-effort for the same reason as `markInProgress`.
+   */
+  async remove(roomCode: string): Promise<void> {
+    try {
+      await this.prisma.lobby.delete({ where: { id: roomCode } });
+    } catch {
+      // No such lobby row — nothing to delete.
+    }
   }
 
   // ----- internals --------------------------------------------------------
