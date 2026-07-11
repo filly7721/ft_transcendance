@@ -12,6 +12,7 @@ import {
   markOf,
   snapshotToState,
   type GameOverEvent,
+  type GameStartEvent,
   type GameUpdateEvent,
   type JoinedEvent,
   type MoveAck,
@@ -34,6 +35,8 @@ export interface SuperTttGame {
   phase: GamePhase;
   /** Which mark the server assigned us, null until seated. */
   myMark: Mark | null;
+  /** Opponent's login, null until both players are seated. */
+  opponent: string | null;
   state: SuperTttState;
   /** Final result reported by the server, null while playing. */
   result: GameOverEvent | null;
@@ -51,10 +54,13 @@ export interface SuperTttGame {
 export function useSuperTtt(lobbyCode: string): SuperTttGame {
   const [phase, setPhase] = useState<GamePhase>("connecting");
   const [myMark, setMyMark] = useState<Mark | null>(null);
+  const [opponent, setOpponent] = useState<string | null>(null);
   const [state, setState] = useState<SuperTttState>(createInitialState);
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  // Our seat, readable inside socket handlers without a stale closure.
+  const seatRef = useRef<number | null>(null);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
@@ -67,12 +73,16 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     // Sent on first join AND when the lobby resets because the opponent
     // left — either way it means "fresh board, wait for player 2".
     socket.on("game:joined", (event: JoinedEvent) => {
+      seatRef.current = event.player;
       setMyMark(markOf(event.player));
+      setOpponent(null);
       setState(snapshotToState(event.board));
       setResult(null);
       setPhase("waiting");
     });
-    socket.on("game:start", () => {
+    socket.on("game:start", (event: GameStartEvent) => {
+      const other = event.players?.find((p) => p.player !== seatRef.current);
+      setOpponent(other?.login ?? null);
       setPhase("playing");
       setNotice(null);
     });
@@ -120,5 +130,5 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     [phase, myMark, state],
   );
 
-  return { phase, myMark, state, result, notice, sendMove };
+  return { phase, myMark, opponent, state, result, notice, sendMove };
 }
