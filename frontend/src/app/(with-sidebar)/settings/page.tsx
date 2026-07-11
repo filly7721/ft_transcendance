@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import { Avatar } from "@/components/profile/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { updateProfile, uploadAvatar } from "@/lib/profile";
+import { deleteAccount } from "@/lib/auth";
 import { setToken } from "@/lib/auth-storage";
 
 export default function SettingsPage() {
@@ -15,12 +16,34 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // On a hard refresh the user loads asynchronously, so the useState
+  // initializers above ran with user = null and the fields stayed empty.
+  // Re-sync whenever the loaded user changes (also refills after a save).
+  useEffect(() => {
+    if (!user) return;
+    setLogin(user.login);
+    setDisplayName(user.displayName);
+  }, [user]);
+
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
     setNotice(null);
     setError(null);
+
+    // Only send what actually changed — sending an unchanged login would
+    // still round-trip the uniqueness check, and an empty field (user not
+    // loaded yet) must never be submitted.
+    const changes: { login?: string; displayName?: string } = {};
+    if (user && login.trim() && login !== user.login) changes.login = login.trim();
+    if (user && displayName.trim() && displayName !== user.displayName)
+      changes.displayName = displayName.trim();
+    if (Object.keys(changes).length === 0) {
+      setNotice("Nothing to update");
+      return;
+    }
+
     try {
-      const result = await updateProfile({ login, displayName });
+      const result = await updateProfile(changes);
       // Changing the login reissues the JWT (the payload embeds the login);
       // store it, or every later request/socket keeps the stale identity.
       if (result.accessToken) setToken(result.accessToken);
@@ -28,6 +51,19 @@ export default function SettingsPage() {
       await refreshUser();
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!confirm("Delete your account? This cannot be undone.")) return;
+    const password = prompt("Enter your password to confirm deletion:");
+    if (!password) return;
+    setError(null);
+    try {
+      await deleteAccount(password);
+      logout();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to delete account");
     }
   }
 
@@ -100,7 +136,7 @@ export default function SettingsPage() {
       {/* Danger zone */}
       <div className="border border-neon-red/30 bg-arcade-panel p-4">
         <h2 className="mb-3 font-arcade text-[10px] text-neon-red">DANGER ZONE</h2>
-        <Button onClick={() => { if (confirm("Delete your account? This cannot be undone.")) logout(); }} className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]">DELETE ACCOUNT</Button>
+        <Button onClick={handleDeleteAccount} className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]">DELETE ACCOUNT</Button>
       </div>
     </div>
   );

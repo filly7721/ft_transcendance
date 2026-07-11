@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import Button from "@/components/Button";
+import Button, { ButtonLink } from "@/components/Button";
 import { Avatar } from "@/components/profile/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { fetchPublicProfile, type PublicProfile } from "@/lib/profile";
@@ -72,10 +72,10 @@ export default function ProfilePage({ params }: { params: Promise<{ login: strin
         {/* Action buttons */}
         <div className="mt-4 flex gap-2">
           {isOwnProfile ? (
-            <Button><a href="/settings">EDIT PROFILE</a></Button>
+            <ButtonLink href="/settings">EDIT PROFILE</ButtonLink>
           ) : isFriend ? (
             <>
-              <Button><a href={`/chat?peer=${login}`}>MESSAGE</a></Button>
+              <ButtonLink href={`/chat?peer=${encodeURIComponent(login)}`}>MESSAGE</ButtonLink>
               <Button onClick={handleUnfriend}>UNFRIEND</Button>
             </>
           ) : (

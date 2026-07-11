@@ -38,3 +38,14 @@ export function register(
 export function fetchMe(): Promise<User> {
   return apiFetch<User>("/users/me");
 }
+
+/**
+ * Permanently delete the current account. The backend requires the current
+ * password so a stolen JWT alone can't destroy an account.
+ */
+export function deleteAccount(password: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>("/auth/account", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
+}
