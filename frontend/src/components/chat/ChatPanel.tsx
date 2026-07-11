@@ -31,6 +31,12 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<ReturnType<typeof createChatSocket> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // The socket connects once; handlers read the current conversation from
+  // this ref so switching conversations doesn't tear the connection down
+  // (each reconnect churned presence broadcasts to every friend).
+  const activePeerRef = useRef<string | null>(activePeer);
+  activePeerRef.current = activePeer;
+  const lastTypingSentRef = useRef(0);
 
   // Load conversations on mount
   useEffect(() => {
@@ -39,15 +45,20 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       .catch((e) => setError(e.message));
   }, []);
 
-  // WebSocket connection
+  // WebSocket connection — established once per mount.
   useEffect(() => {
     const socket = createChatSocket();
     socketRef.current = socket;
 
     socket.on("chat:message", (msg: Message) => {
-      setMessages((prev) => [...prev, msg]);
+      const peer = activePeerRef.current;
+      // Only thread messages belonging to the open conversation; others
+      // just bump the conversation list / badge.
+      if (msg.senderLogin === peer || msg.receiverLogin === peer) {
+        setMessages((prev) => [...prev, msg]);
+      }
       // Auto-mark as read if we're viewing this conversation
-      if (msg.senderLogin === activePeer) {
+      if (msg.senderLogin === peer) {
         socket.emit("chat:read", { senderLogin: msg.senderLogin });
       }
       // Refresh conversations to update last message + unread
@@ -58,7 +69,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     });
 
     socket.on("chat:typing", ({ senderLogin }: { senderLogin: string }) => {
-      if (senderLogin === activePeer) {
+      if (senderLogin === activePeerRef.current) {
         setTyping(true);
         setTimeout(() => setTyping(false), 3000);
       }
@@ -85,7 +96,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [activePeer]);
+  }, []);
 
   // Load history when activePeer changes
   useEffect(() => {
@@ -126,6 +137,11 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
 
   const handleTyping = useCallback(() => {
     if (!activePeer) return;
+    // Throttle: at most one typing event per 2s, not one per keystroke —
+    // the server hits the DB (friendship check) for each of these.
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
     socketRef.current?.emit("chat:typing", { receiverLogin: activePeer });
   }, [activePeer]);
 
