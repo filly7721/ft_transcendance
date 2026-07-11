@@ -1,51 +1,91 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
-import { createLobby, fetchLobbies, type Lobby } from "@/lib/lobbies";
+import { ApiError } from "@/lib/api";
+import { gameRoomHref } from "@/lib/games";
+import { createLobby, fetchLobbies, joinLobby, type Lobby } from "@/lib/lobbies";
 import CreateLobbyForm from "./CreateLobbyForm";
 import LobbyRow from "./LobbyRow";
 
 type Props = {
-  // Registry slug ("minesweeper" | "super-tic-tac-toe") — the future backend
-  // takes this in the request body, so this prop is all the API needs.
+  // Registry slug ("minesweeper" | "super-tic-tac-toe") — the backend takes
+  // this as the ?game= filter, so this prop is all the API needs.
   game: string;
 };
 
+// One status line under the list serves both progress and errors.
+type Status = { text: string; error: boolean };
+
+function statusFromError(err: unknown, fallback: string): Status {
+  const text =
+    err instanceof ApiError ? err.message.toUpperCase() : fallback;
+  return { text, error: true };
+}
+
 export default function LobbySelector({ game }: Props) {
+  const router = useRouter();
   const [lobbies, setLobbies] = useState<Lobby[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLobbies(null);
     setStatus(null);
-    fetchLobbies(game).then((result) => {
-      if (!cancelled) setLobbies(result);
-    });
+    fetchLobbies(game)
+      .then((result) => {
+        if (!cancelled) setLobbies(result);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLobbies([]);
+        setStatus({ text: "COULD NOT REACH THE LOBBY SERVER", error: true });
+      });
     return () => {
       cancelled = true;
     };
   }, [game]);
 
-  function handleJoin(lobby: Lobby) {
-    // TODO: ask the backend to join, then route into the game session
-    setStatus(`JOINING ${lobby.name}… (BACKEND PENDING)`);
+  /** Join a room we already know exists, then drop into the game session. */
+  async function enterRoom(roomCode: string, label: string) {
+    setBusy(true);
+    setStatus({ text: `JOINING ${label}…`, error: false });
+    try {
+      const lobby = await joinLobby(roomCode);
+      router.push(gameRoomHref(game, lobby.id));
+    } catch (err) {
+      setStatus(statusFromError(err, "COULD NOT JOIN THE LOBBY"));
+      // The lobby may have filled or died — refresh the list so the row
+      // reflects reality instead of the state it had when we clicked.
+      fetchLobbies(game).then(setLobbies).catch(() => {});
+      setBusy(false);
+    }
   }
 
   async function handleCreate(name: string, maxPlayers: number, options: Record<string, string>) {
-    const lobby = await createLobby({ game, name, maxPlayers, options });
-    setLobbies((prev) => [lobby, ...(prev ?? [])]);
-    setCreating(false);
-    setStatus(`LOBBY ${lobby.id} CREATED — WAITING FOR PLAYERS`);
+    setBusy(true);
+    setStatus({ text: "CREATING LOBBY…", error: false });
+    try {
+      const lobby = await createLobby({ game, name, maxPlayers, options });
+      setCreating(false);
+      // The creator is already a member — go straight into the room and
+      // wait for the opponent there.
+      router.push(gameRoomHref(game, lobby.id));
+    } catch (err) {
+      setStatus(statusFromError(err, "COULD NOT CREATE THE LOBBY"));
+      setBusy(false);
+    }
   }
 
   function handleJoinByCode(e: React.FormEvent) {
     e.preventDefault();
-    // TODO: resolve the code via the backend, then join as above
-    if (code.trim()) setStatus(`LOOKING UP ${code.trim().toUpperCase()}… (BACKEND PENDING)`);
+    const trimmed = code.trim();
+    if (!trimmed || busy) return;
+    void enterRoom(trimmed, trimmed.toUpperCase());
   }
 
   return (
@@ -68,13 +108,23 @@ export default function LobbySelector({ game }: Props) {
       ) : (
         <ul className="flex flex-col gap-2">
           {lobbies.map((lobby) => (
-            <LobbyRow key={lobby.id} lobby={lobby} onJoin={() => handleJoin(lobby)} />
+            <LobbyRow
+              key={lobby.id}
+              lobby={lobby}
+              onJoin={() => !busy && void enterRoom(lobby.id, lobby.name)}
+            />
           ))}
         </ul>
       )}
 
       {status && (
-        <p className="text-center font-mono text-xs text-neon-green">{status}</p>
+        <p
+          className={`text-center font-mono text-xs ${
+            status.error ? "text-neon-red" : "text-neon-green"
+          }`}
+        >
+          {status.text}
+        </p>
       )}
 
       <form onSubmit={handleJoinByCode} className="flex gap-2 border-t border-arcade-border pt-4">
@@ -85,7 +135,7 @@ export default function LobbySelector({ game }: Props) {
           placeholder="LOBBY CODE"
           className="min-w-0 flex-1 border border-arcade-border bg-arcade-bg px-2 py-1.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-neon-cyan"
         />
-        <Button type="submit">JOIN BY CODE</Button>
+        <Button type="submit" disabled={busy}>JOIN BY CODE</Button>
       </form>
     </section>
   );

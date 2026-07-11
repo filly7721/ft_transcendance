@@ -51,13 +51,14 @@ export default function CreateLobbyForm({ onCreate, onCancel }: Props) {
         />
       </Row>
       <Row label="Max players">
+        {/* Both current games are 1v1 — reopen this to 4 when a game that
+            seats more than two players lands. */}
         <select
           value={maxPlayers}
           onChange={(e) => setMaxPlayers(Number(e.target.value))}
           className={inputClasses}
         >
           <option value={2}>2</option>
-          <option value={4}>4</option>
         </select>
       </Row>
       <Row label="Mode">
