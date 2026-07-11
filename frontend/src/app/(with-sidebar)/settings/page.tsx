@@ -5,6 +5,7 @@ import Button from "@/components/Button";
 import { Avatar } from "@/components/profile/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { updateProfile, uploadAvatar } from "@/lib/profile";
+import { setToken } from "@/lib/auth-storage";
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -19,7 +20,10 @@ export default function SettingsPage() {
     setNotice(null);
     setError(null);
     try {
-      await updateProfile({ login, displayName });
+      const result = await updateProfile({ login, displayName });
+      // Changing the login reissues the JWT (the payload embeds the login);
+      // store it, or every later request/socket keeps the stale identity.
+      if (result.accessToken) setToken(result.accessToken);
       setNotice("Profile updated");
       await refreshUser();
     } catch (e) {
