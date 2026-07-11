@@ -27,6 +27,11 @@ export interface JoinedEvent {
   board: { rows: number; cols: number; mineCount: number };
 }
 
+/** Both seats taken — the race begins. Carries who is sitting where. */
+export interface GameStartEvent {
+  players: { player: PlayerIndex; login: string }[];
+}
+
 export interface BoardUpdateEvent {
   player: PlayerIndex;
   changes: CellChange[];
