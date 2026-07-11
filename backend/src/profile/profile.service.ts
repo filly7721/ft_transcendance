@@ -5,6 +5,8 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { unlink } from 'fs/promises';
+import { basename, join } from 'path';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { publicUserSelect } from '../users/users.service';
@@ -123,18 +125,34 @@ export class ProfileService {
   }
 
   /**
-   * Save the avatar URL after multer has written the file to disk.
+   * Save the avatar URL after multer has written the file to disk, and
+   * delete the previous avatar file (if it was one of ours) so uploads
+   * don't accumulate on disk forever.
    */
   async saveAvatarUrl(
     userId: string,
     filename: string,
   ): Promise<{ avatarUrl: string }> {
     const relativePath = `/api/uploads/avatars/${filename}`;
+    const previous = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    });
     await this.prisma.user.update({
       where: { id: userId },
       data: { avatarUrl: relativePath },
       select: { id: true },
     });
+
+    // Best-effort cleanup of the replaced file. basename() confines the
+    // delete to the avatars directory even if the stored URL was tampered
+    // with, and external URLs (different prefix) are left alone.
+    const old = previous?.avatarUrl;
+    if (old && old.startsWith('/api/uploads/avatars/') && old !== relativePath) {
+      const oldPath = join(process.cwd(), 'uploads', 'avatars', basename(old));
+      await unlink(oldPath).catch(() => undefined);
+    }
+
     return { avatarUrl: relativePath };
   }
 

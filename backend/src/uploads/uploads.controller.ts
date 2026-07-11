@@ -62,7 +62,13 @@ export class AvatarsController {
 
     const stream = createReadStream(filePath);
     stream.on('error', () => {
-      throw new NotFoundException('avatar read error');
+      // Throwing here would escape Nest's request pipeline (we're in a
+      // stream callback) and crash the process as an uncaught exception.
+      // Answer on the response object directly instead.
+      if (!res.headersSent) {
+        res.status(404);
+      }
+      res.end();
     });
     stream.pipe(res);
   }
