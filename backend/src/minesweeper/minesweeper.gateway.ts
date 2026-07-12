@@ -137,6 +137,15 @@ export class MinesweeperGateway
 
     let room = this.rooms.get(code);
     if (!room) {
+      // Only a real lobby row may open a new room — otherwise any made-up
+      // code pasted into the game URL would fabricate a playable room.
+      // Live rooms above skip this so resumes survive row cleanup.
+      if (!(await this.lobbies.existsForGame(code, 'minesweeper'))) {
+        this.logger.warn(`rejecting ${client.id}: no lobby for code ${code}`);
+        client.emit('game:error', { reason: 'invalid_lobby' });
+        client.disconnect(true);
+        return;
+      }
       room = this.createRoom();
       this.rooms.set(code, room);
     }
