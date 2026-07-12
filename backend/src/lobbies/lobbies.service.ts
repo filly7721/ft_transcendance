@@ -66,6 +66,7 @@ export class LobbiesService {
     const optionsJson = JSON.stringify(dto.options ?? {});
 
     await this.prisma.$transaction(async (tx) => {
+      await this.leaveOtherLobbies(tx, hostId);
       await tx.lobby.create({
         data: {
           id,
@@ -107,14 +108,17 @@ export class LobbiesService {
     }
 
     const alreadyMember = lobby.members.some((m) => m.userId === userId);
-    if (!alreadyMember) {
-      if (lobby.members.length >= lobby.maxPlayers) {
-        throw new ConflictException('lobby is full');
-      }
-      await this.prisma.lobbyMember.create({
-        data: { lobbyId: roomCode, userId },
-      });
+    if (!alreadyMember && lobby.members.length >= lobby.maxPlayers) {
+      throw new ConflictException('lobby is full');
     }
+    await this.prisma.$transaction(async (tx) => {
+      await this.leaveOtherLobbies(tx, userId, roomCode);
+      if (!alreadyMember) {
+        await tx.lobbyMember.create({
+          data: { lobbyId: roomCode, userId },
+        });
+      }
+    });
 
     // Re-fetch to reflect the new member count.
     const updated = await this.prisma.lobby.findUniqueOrThrow({
@@ -159,6 +163,37 @@ export class LobbiesService {
   }
 
   // ----- internals --------------------------------------------------------
+
+  /**
+   * Auto-leave: drop the user's memberships in every lobby except `except`.
+   * Creating or joining a lobby implicitly leaves the previous one, so an
+   * account is only ever a member of one lobby at a time — without a hard
+   * "already in a lobby" rejection that could lock accounts out behind
+   * abandoned rows. Lobbies left with no members at all are deleted, so
+   * rooms nobody ever connected to stop lingering in the browser forever.
+   *
+   * A live game is unaffected: the in-memory room keeps the leaver's seat
+   * reserved, and rejoining that room's code makes this a no-op for it.
+   */
+  private async leaveOtherLobbies(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    except?: string,
+  ): Promise<void> {
+    const memberships = await tx.lobbyMember.findMany({
+      where: { userId, ...(except ? { lobbyId: { not: except } } : {}) },
+      select: { lobbyId: true },
+    });
+    if (memberships.length === 0) return;
+
+    const lobbyIds = memberships.map((m) => m.lobbyId);
+    await tx.lobbyMember.deleteMany({
+      where: { userId, lobbyId: { in: lobbyIds } },
+    });
+    await tx.lobby.deleteMany({
+      where: { id: { in: lobbyIds }, members: { none: {} } },
+    });
+  }
 
   /** Generate room codes until one is free (or MAX_CODE_RETRIES is hit). */
   private async generateUniqueRoomCode(): Promise<string> {
