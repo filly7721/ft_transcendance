@@ -34,7 +34,11 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
 
   return (
     <div className="flex flex-col items-center gap-6">
-      <GameStatusBar room={lobbyCode} opponent={game.opponent}>
+      <GameStatusBar
+        room={lobbyCode}
+        opponent={game.opponent}
+        opponentOnline={game.opponentOnline}
+      >
         <p className={`font-arcade text-xs ${status.glow}`}>{status.text}</p>
       </GameStatusBar>
 

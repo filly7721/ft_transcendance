@@ -11,6 +11,7 @@ import {
   type JoinedEvent,
   type MoveAck,
   type PlayerIndex,
+  type PresenceEvent,
 } from "./protocol";
 import { getToken } from "@/lib/auth-storage";
 
@@ -24,6 +25,7 @@ const ERROR_NOTICES: Record<string, string> = {
   lobby_full: "Lobby is full — try again later",
   rate_limited: "Too many connections from your network",
   invalid_lobby: "Invalid room code — go back to the lobby",
+  superseded: "You opened this game somewhere else — playing there now",
 };
 
 export interface MinesweeperGameState {
@@ -31,6 +33,8 @@ export interface MinesweeperGameState {
   player: PlayerIndex | null;
   /** Opponent's login, null until both players are seated. */
   opponent: string | null;
+  /** False while the opponent is disconnected mid-game (they may come back). */
+  opponentOnline: boolean;
   myBoard: Cell[][];
   enemyBoard: Cell[][];
   mineCount: number;
@@ -50,6 +54,7 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
   const [phase, setPhase] = useState<GamePhase>("connecting");
   const [player, setPlayer] = useState<PlayerIndex | null>(null);
   const [opponent, setOpponent] = useState<string | null>(null);
+  const [opponentOnline, setOpponentOnline] = useState(true);
   const [myBoard, setMyBoard] = useState<Cell[][]>(() => makeHiddenBoard(9, 9));
   const [enemyBoard, setEnemyBoard] = useState<Cell[][]>(() => makeHiddenBoard(9, 9));
   const [mineCount, setMineCount] = useState(0);
@@ -75,6 +80,7 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
       seatRef.current = event.player;
       setPlayer(event.player);
       setOpponent(null);
+      setOpponentOnline(true);
       setMineCount(event.board.mineCount);
       setMyBoard(makeHiddenBoard(event.board.rows, event.board.cols));
       setEnemyBoard(makeHiddenBoard(event.board.rows, event.board.cols));
@@ -97,6 +103,10 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     });
     socket.on("opponent:update", (event: BoardUpdateEvent) => {
       setEnemyBoard((board) => applyChanges(board, event.changes));
+    });
+    socket.on("game:presence", (event: PresenceEvent) => {
+      // Only the opponent's presence matters to this client.
+      if (event.player !== seatRef.current) setOpponentOnline(event.connected);
     });
     socket.on("game:over", (event: GameOverEvent) => {
       setResult(event);
@@ -135,5 +145,17 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     [sendMove],
   );
 
-  return { phase, player, opponent, myBoard, enemyBoard, mineCount, result, notice, reveal, flag };
+  return {
+    phase,
+    player,
+    opponent,
+    opponentOnline,
+    myBoard,
+    enemyBoard,
+    mineCount,
+    result,
+    notice,
+    reveal,
+    flag,
+  };
 }
