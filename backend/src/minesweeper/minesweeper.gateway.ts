@@ -33,13 +33,17 @@ import { LobbiesService } from '../lobbies/lobbies.service';
  *
  * Server -> client:
  *   'game:joined'     you were seated (also sent again if the room resets
- *                     because your opponent left — treat it as a full reset)
+ *                     because your opponent left — treat it as a full reset;
+ *                     a mid-game reconnect follows it with game:update /
+ *                     opponent:update snapshots replaying both boards)
  *   'game:start'      { players: [{ player, login }, ...] } — moves accepted
  *   'game:update'     changes to YOUR board
  *   'opponent:update' changes to the OPPONENT's board (side-by-side view)
+ *   'game:presence'   { player, connected } — a seated player dropped
+ *                     mid-game (or came back); the race keeps running
  *   'game:over'       { winner, reason: 'mine' | 'cleared' }
  *   'game:error'      { reason } — 'unauthorized' | 'rate_limited'
- *                     | 'invalid_lobby' | 'lobby_full'
+ *                     | 'invalid_lobby' | 'lobby_full' | 'superseded'
  *
  * Connect from the frontend with:
  *   io('http://localhost:3001/minesweeper', {
@@ -65,10 +69,16 @@ interface Room {
   logins: (string | null)[];
   engines: MinesweeperEngine[];
   status: 'waiting' | 'playing' | 'over';
+  /** Runs while BOTH players are disconnected mid-game; destroys the room
+   *  unless one of them makes it back within the grace window. */
+  emptyTimer: NodeJS.Timeout | null;
 }
 
 /** Room codes come from user-controlled input, so bound their shape. */
 const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
+/** How long a mid-game room survives with both players disconnected —
+ *  long enough for a refresh (or both refreshing at once) to come back. */
+const EMPTY_GRACE_MS = 30_000;
 
 @WebSocketGateway({
   namespace: 'minesweeper',
@@ -133,8 +143,7 @@ export class MinesweeperGateway
 
     // Same user again (refresh, dev remount, newer tab): reclaim the seat
     // and kick the stale socket, instead of seating them as their own
-    // opponent or bouncing them off their own full room. NOTE: the client's
-    // board view restarts hidden; the server-side engine keeps its state.
+    // opponent or bouncing them off their own full room.
     const ownSeat = room.userIds.indexOf(payload.sub);
     if (ownSeat !== -1) {
       const staleId = room.seats[ownSeat];
@@ -142,12 +151,46 @@ export class MinesweeperGateway
       room.logins[ownSeat] = payload.login;
       client.data.room = code;
       await client.join(code);
+      this.clearEmptyTimer(room);
       client.emit('game:joined', this.joinedEvent(ownSeat));
       if (room.status === 'playing') {
+        // Replay both boards so the rejoining client resumes the race
+        // exactly where it left off, then re-announce the running game.
+        client.emit('game:update', {
+          player: (ownSeat + 1) as PlayerIndex,
+          changes: room.engines[ownSeat].snapshot(),
+          outcome: 'continue',
+        });
+        client.emit('opponent:update', {
+          player: (2 - ownSeat) as PlayerIndex,
+          changes: room.engines[1 - ownSeat].snapshot(),
+          outcome: 'continue',
+        });
         client.emit('game:start', this.startEvent(room));
+        // ...and tell them if the opponent is offline right now.
+        if (room.userIds[1 - ownSeat] && room.seats[1 - ownSeat] === null) {
+          client.emit('game:presence', {
+            player: (2 - ownSeat) as PlayerIndex,
+            connected: false,
+          });
+        }
       }
       if (staleId && staleId !== client.id) {
-        this.server.sockets.get(staleId)?.disconnect(true);
+        // One live seat per account: the newest window wins, and the old one
+        // is told why it went dark instead of hanging on a dead socket.
+        const stale = this.server.sockets.get(staleId);
+        stale?.emit('game:error', { reason: 'superseded' });
+        stale?.disconnect(true);
+      } else if (room.status === 'playing') {
+        // Coming back from a real disconnect — clear the opponent's
+        // "opponent disconnected" indicator.
+        const opponent = room.seats[1 - ownSeat];
+        if (opponent) {
+          this.server.to(opponent).emit('game:presence', {
+            player: (ownSeat + 1) as PlayerIndex,
+            connected: true,
+          });
+        }
       }
       this.logger.log(
         `client ${client.id} (login=${payload.login}) reclaimed seat ${ownSeat + 1} in room ${code}`,
@@ -155,7 +198,11 @@ export class MinesweeperGateway
       return;
     }
 
-    const seat = room.seats.indexOf(null);
+    // A seat is only free if no user holds it — a disconnected mid-game
+    // player keeps their seat (userIds entry) until the room dies.
+    const seat = room.seats.findIndex(
+      (s, i) => s === null && room.userIds[i] === null,
+    );
     if (seat === -1) {
       this.logger.warn(`rejecting ${client.id}: room ${code} is full`);
       client.emit('game:error', { reason: 'lobby_full' });
@@ -193,8 +240,31 @@ export class MinesweeperGateway
     const { code, room, seat } = found;
 
     const survivor = room.seats[1 - seat];
+
+    if (room.status === 'playing') {
+      // Mid-game drop: hold the seat (userIds entry stays) so the same
+      // account can reconnect and resume; the survivor keeps racing and
+      // just gets a presence indicator.
+      room.seats[seat] = null;
+      if (survivor === null) {
+        // Both players gone — give refreshes a grace window to come back
+        // before the room and its lobby row are dropped.
+        this.startEmptyTimer(code, room);
+      } else {
+        this.server.to(survivor).emit('game:presence', {
+          player: (seat + 1) as PlayerIndex,
+          connected: false,
+        });
+      }
+      this.logger.log(
+        `client ${client.id} dropped mid-game, seat ${seat + 1} held in room ${code}`,
+      );
+      return;
+    }
+
     const survivorUserId = room.userIds[1 - seat];
     const survivorLogin = room.logins[1 - seat];
+    this.clearEmptyTimer(room);
 
     if (survivor === null) {
       // Last player out — the room dies with them, and so does its lobby row.
@@ -204,8 +274,9 @@ export class MinesweeperGateway
       return;
     }
 
-    // Whoever stayed becomes player 1 of a fresh race in the same room; the
-    // frontend treats a repeated game:joined as a full reset.
+    // Pre-game or post-game exit: whoever stayed becomes player 1 of a fresh
+    // race in the same room; the frontend treats a repeated game:joined as a
+    // full reset.
     room.seats = [survivor, null];
     room.userIds = [survivorUserId, null];
     room.logins = [survivorLogin, null];
@@ -266,13 +337,16 @@ export class MinesweeperGateway
 
     // Your own board changes come back on 'game:update'; the same changes go
     // to the opponent as 'opponent:update' to feed the side-by-side view.
+    // A disconnected opponent misses nothing: their rejoin replays the full
+    // board snapshot.
     const update = {
       player: (seat + 1) as PlayerIndex,
       changes: result.changes,
       outcome: result.outcome,
     };
     client.emit('game:update', update);
-    this.server.to(room.seats[1 - seat]!).emit('opponent:update', update);
+    const opponent = room.seats[1 - seat];
+    if (opponent) this.server.to(opponent).emit('opponent:update', update);
 
     if (result.outcome !== 'continue') {
       room.status = 'over';
@@ -324,7 +398,27 @@ export class MinesweeperGateway
       logins: [null, null],
       engines: this.freshEngines(),
       status: 'waiting',
+      emptyTimer: null,
     };
+  }
+
+  private startEmptyTimer(code: string, room: Room): void {
+    this.clearEmptyTimer(room);
+    room.emptyTimer = setTimeout(() => {
+      this.logger.warn(
+        `room ${code}: nobody came back within ${EMPTY_GRACE_MS / 1000}s — dropping`,
+      );
+      this.clearEmptyTimer(room);
+      this.rooms.delete(code);
+      void this.lobbies.remove(code);
+    }, EMPTY_GRACE_MS);
+  }
+
+  private clearEmptyTimer(room: Room): void {
+    if (room.emptyTimer) {
+      clearTimeout(room.emptyTimer);
+      room.emptyTimer = null;
+    }
   }
 
   private startEvent(room: Room): {
