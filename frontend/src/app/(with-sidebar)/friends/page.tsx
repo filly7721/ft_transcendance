@@ -11,6 +11,7 @@ import {
   rejectFriendRequest,
   unfriend,
   type Friend,
+  type FriendRequest,
   type FriendRequestsResponse,
 } from "@/lib/friends";
 import { useNotifications } from "@/components/NotificationProvider";
@@ -33,11 +34,36 @@ export default function FriendsPage() {
     reload().catch((e) => setError(e.message));
   }, [reload]);
 
-  // Listen for real-time events: friend request received / accepted / presence change
+  // Listen for real-time events: friend request received / accepted / presence
+  // change. The event payloads carry the full data (see NotificationProvider),
+  // so they're applied to local state directly — reloading both REST lists on
+  // every event was tripping the backend rate limiter (429s). Only
+  // profile:update still reloads: its payload is just a userId, and profile
+  // edits are rare.
   useEffect(() => {
-    const handleFriendRequest = () => { reload(); };
-    const handleFriendAccept = () => { reload(); };
-    const handlePresence = () => { reload(); };
+    const handleFriendRequest = (e: Event) => {
+      const request = (e as CustomEvent<{ request: FriendRequest }>).detail?.request;
+      if (!request) return;
+      setRequests((prev) =>
+        prev ? { ...prev, incoming: [request, ...prev.incoming] } : prev,
+      );
+    };
+    const handleFriendAccept = (e: Event) => {
+      const friend = (e as CustomEvent<{ friend: Friend }>).detail?.friend;
+      if (!friend) return;
+      // Our outgoing request became a friendship: move it between sections.
+      setFriends((prev) => (prev ? [friend, ...prev.filter((f) => f.id !== friend.id)] : prev));
+      setRequests((prev) =>
+        prev ? { ...prev, outgoing: prev.outgoing.filter((r) => r.login !== friend.login) } : prev,
+      );
+    };
+    const handlePresence = (e: Event) => {
+      const detail = (e as CustomEvent<{ userId: string; online: boolean }>).detail;
+      if (!detail) return;
+      setFriends((prev) =>
+        prev ? prev.map((f) => (f.id === detail.userId ? { ...f, online: detail.online } : f)) : prev,
+      );
+    };
     const handleProfileUpdate = () => { reload(); };
 
     window.addEventListener("friends:request", handleFriendRequest);
@@ -82,8 +108,8 @@ export default function FriendsPage() {
 
   // Online status: the REST response's flag is correct at fetch time, and
   // onlineFriendIds layers real-time presence on top. Union of the two —
-  // a friend going offline triggers a presence:update, which reloads the
-  // REST list anyway.
+  // going offline is handled by handlePresence flipping f.online to false
+  // (and the Set dropping the id), so the union never pins someone online.
   const friendsWithOnline = friends?.map((f) => ({
     ...f,
     online: f.online || onlineFriendIds.has(f.id),
