@@ -25,19 +25,23 @@ const NotificationContext = createContext<NotificationState | null>(null);
 /**
  * Notification provider — connects to the /social WS namespace and tracks:
  *   - Friend request count (real-time via friends:request event)
- *   - Unread chat count (polled from REST every 30s + refreshed on chat:message)
+ *   - Unread chat count (pushed by ChatPanel via "chat:unread" window events;
+ *     polled from REST every 30s as a fallback for when no ChatPanel is
+ *     mounted — the widget is closed — or a WS event was missed)
  *   - Online friend IDs (real-time via presence:update)
+ *
+ * WS events are applied to local state directly — the payloads carry the
+ * full data, so there is no REST re-fetch per event. (Re-fetching on every
+ * event was tripping the backend rate limiter: 429s during active chats.)
  *
  * Exposes badge counts via useNotifications() for the TopBar/Sidebar.
  *
  * ALSO dispatches window CustomEvents so page-level components (like the
  * friends page) can react to real-time updates without each one opening
  * its own WS connection:
- *   - "friends:request"  — a new friend request was received
- *   - "friends:accept"   — a friend request was accepted (by either party)
- *   - "friends:reject"   — a friend request was rejected
+ *   - "friends:request"  — { detail: { request } } a new friend request was received
+ *   - "friends:accept"   — { detail: { friend } } your outgoing request was accepted
  *   - "presence:update"  — a friend came online or went offline { detail: { userId, online } }
- *   - "chat:message"     — a new chat message was received
  */
 export default function NotificationProvider({ children }: { children: React.ReactNode }) {
   // Auth status drives the socket lifecycle: connecting registers the user
@@ -114,16 +118,16 @@ export default function NotificationProvider({ children }: { children: React.Rea
       window.dispatchEvent(new CustomEvent("presence:update", { detail: { userId, online } }));
     });
 
-    s.on("friends:request", () => {
+    s.on("friends:request", (payload: { request: unknown }) => {
       setFriendRequestCount((prev) => prev + 1);
-      refresh();
-      // Dispatch so the friends page can re-fetch + re-render the request list
-      window.dispatchEvent(new CustomEvent("friends:request"));
+      // Forward the full request so the friends page can append it locally
+      window.dispatchEvent(new CustomEvent("friends:request", { detail: payload }));
     });
 
-    s.on("friends:accept", () => {
-      refresh();
-      window.dispatchEvent(new CustomEvent("friends:accept"));
+    s.on("friends:accept", (payload: { friend: unknown }) => {
+      // Someone accepted OUR request — incoming count is unaffected.
+      // Forward the new friend so the friends page can insert them locally.
+      window.dispatchEvent(new CustomEvent("friends:accept", { detail: payload }));
     });
 
     s.on("profile:update", () => {
@@ -131,18 +135,20 @@ export default function NotificationProvider({ children }: { children: React.Rea
       window.dispatchEvent(new CustomEvent("profile:update"));
     });
 
-    // The ChatPanel dispatches this window event whenever a message
-    // arrives, so the unread badge updates instantly instead of waiting
-    // for the next poll.
-    const onChatMessage = () => refresh();
-    window.addEventListener("chat:message", onChatMessage);
+    // The ChatPanel maintains the conversation list locally and dispatches
+    // the recomputed unread total whenever it changes — no REST round-trip.
+    const onChatUnread = (e: Event) => {
+      const total = (e as CustomEvent<{ total: number }>).detail?.total;
+      if (typeof total === "number") setUnreadChatCount(total);
+    };
+    window.addEventListener("chat:unread", onChatUnread);
 
-    // Poll unread chat count every 30s as a fallback
+    // Poll every 30s as a fallback (covers ChatPanel not mounted / missed events)
     const interval = setInterval(refresh, 30_000);
 
     return () => {
       s.disconnect();
-      window.removeEventListener("chat:message", onChatMessage);
+      window.removeEventListener("chat:unread", onChatUnread);
       clearInterval(interval);
     };
   }, [refresh, status]);
