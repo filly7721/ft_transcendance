@@ -84,6 +84,30 @@ export class MinesweeperEngine {
     return { ok: true, outcome: 'continue', changes };
   }
 
+  /**
+   * Every non-hidden cell as a CellChange list, so a reconnecting client can
+   * replay the board it left. Exploded mines are not included: a finished
+   * game's room resets when a player leaves, so snapshots only ever describe
+   * games still in progress.
+   */
+  snapshot(): CellChange[] {
+    const changes: CellChange[] = [];
+    for (const k of this.revealed) {
+      const [row, col] = k.split(',').map(Number);
+      changes.push({
+        row,
+        col,
+        state: 'revealed',
+        adjacentMines: this.adjacentMines(row, col),
+      });
+    }
+    for (const k of this.flagged) {
+      const [row, col] = k.split(',').map(Number);
+      changes.push({ row, col, state: 'flagged' });
+    }
+    return changes;
+  }
+
   toggleFlag(row: number, col: number): MoveResult {
     const invalid = this.validate(row, col);
     if (invalid) return invalid;

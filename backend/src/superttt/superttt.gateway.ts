@@ -42,12 +42,14 @@ import { LobbiesService } from '../lobbies/lobbies.service';
  *   'game:move' { boardIdx, cellIdx }
  *
  * Server -> client:
- *   'game:joined'  { player, board: GameSnapshot }
- *   'game:start'   { players: [{ player, login }, { player, login }] }
- *   'game:update'  { player, mark, boardIdx, cellIdx, miniWinner?, nextBoard, outerWinner? }
- *   'game:over'    { winner, reason: 'boards' | 'draw' }
- *   'game:error'   { reason } — 'unauthorized' | 'rate_limited' | 'invalid_lobby'
- *                   | 'lobby_full' | 'timeout' | ...
+ *   'game:joined'   { player, board: GameSnapshot }
+ *   'game:start'    { players: [{ player, login }, { player, login }] }
+ *   'game:update'   { player, mark, boardIdx, cellIdx, miniWinner?, nextBoard, outerWinner? }
+ *   'game:presence' { player, connected } — a seated player dropped mid-game
+ *                   (or came back); the game itself keeps running.
+ *   'game:over'     { winner, reason: 'boards' | 'draw' }
+ *   'game:error'    { reason } — 'unauthorized' | 'rate_limited' | 'invalid_lobby'
+ *                   | 'lobby_full' | 'timeout' | 'superseded' | ...
  *
  * Connect from the frontend with:
  *   io('http://localhost:3001/super-tic-tac-toe', {
@@ -88,12 +90,18 @@ interface Room {
   /** C3: ready timer (during 'waiting') + inactivity timer (during 'playing'). */
   readyTimer: NodeJS.Timeout | null;
   inactivityTimer: NodeJS.Timeout | null;
+  /** Runs while BOTH players are disconnected mid-game; destroys the room
+   *  unless one of them makes it back within the grace window. */
+  emptyTimer: NodeJS.Timeout | null;
 }
 
 /** Ready timeout: if player 2 doesn't arrive in 120s, disconnect player 1. */
 const READY_TIMEOUT_MS = 120_000;
 /** Inactivity timeout: if no move in 60s during playing, disconnect both. */
 const INACTIVITY_TIMEOUT_MS = 60_000;
+/** How long a mid-game room survives with both players disconnected —
+ *  long enough for a refresh (or both refreshing at once) to come back. */
+const EMPTY_GRACE_MS = 30_000;
 /** Room codes come from user-controlled input, so bound their shape. */
 const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
 
@@ -170,14 +178,36 @@ export class SuperTttGateway
       room.logins[ownSeat] = payload.login;
       client.data.room = code;
       await client.join(code);
+      this.clearEmptyTimer(room);
       client.emit('game:joined', this.joinedEvent(room, ownSeat));
       if (room.status === 'playing') {
         // Re-announce the running game so the rejoining client resumes
         // (the joined snapshot already carries the full board).
         client.emit('game:start', this.startEvent(room));
+        // ...and tell them if the opponent is offline right now.
+        if (room.userIds[1 - ownSeat] && room.seats[1 - ownSeat] === null) {
+          client.emit('game:presence', {
+            player: (2 - ownSeat) as PlayerIndex,
+            connected: false,
+          });
+        }
       }
       if (staleId && staleId !== client.id) {
-        this.server.sockets.get(staleId)?.disconnect(true);
+        // One live seat per account: the newest window wins, and the old one
+        // is told why it went dark instead of hanging on a dead socket.
+        const stale = this.server.sockets.get(staleId);
+        stale?.emit('game:error', { reason: 'superseded' });
+        stale?.disconnect(true);
+      } else if (room.status === 'playing') {
+        // Coming back from a real disconnect — clear the opponent's
+        // "opponent disconnected" indicator.
+        const opponent = room.seats[1 - ownSeat];
+        if (opponent) {
+          this.server.to(opponent).emit('game:presence', {
+            player: (ownSeat + 1) as PlayerIndex,
+            connected: true,
+          });
+        }
       }
       this.logger.log(
         `client ${client.id} (login=${payload.login}) reclaimed seat ${ownSeat + 1} in room ${code}`,
@@ -185,7 +215,11 @@ export class SuperTttGateway
       return;
     }
 
-    const seat = room.seats.indexOf(null);
+    // A seat is only free if no user holds it — a disconnected mid-game
+    // player keeps their seat (userIds entry) until the room dies.
+    const seat = room.seats.findIndex(
+      (s, i) => s === null && room.userIds[i] === null,
+    );
     if (seat === -1) {
       this.logger.warn(`rejecting ${client.id}: room ${code} is full`);
       client.emit('game:error', { reason: 'lobby_full' });
@@ -230,10 +264,33 @@ export class SuperTttGateway
     const { code, room, seat } = found;
 
     const survivor = room.seats[1 - seat];
+
+    if (room.status === 'playing') {
+      // Mid-game drop: hold the seat (userIds entry stays) so the same
+      // account can reconnect and resume; the survivor keeps playing and
+      // just gets a presence indicator.
+      room.seats[seat] = null;
+      if (survivor === null) {
+        // Both players gone — give refreshes a grace window to come back
+        // before the room and its lobby row are dropped.
+        this.startEmptyTimer(code, room);
+      } else {
+        this.server.to(survivor).emit('game:presence', {
+          player: (seat + 1) as PlayerIndex,
+          connected: false,
+        });
+      }
+      this.logger.log(
+        `client ${client.id} dropped mid-game, seat ${seat + 1} held in room ${code}`,
+      );
+      return;
+    }
+
     const survivorUserId = room.userIds[1 - seat];
     const survivorLogin = room.logins[1 - seat];
     this.clearReadyTimer(room);
     this.clearInactivityTimer(room);
+    this.clearEmptyTimer(room);
 
     if (survivor === null) {
       // Last player out — the room dies with them, and so does its lobby row.
@@ -243,8 +300,9 @@ export class SuperTttGateway
       return;
     }
 
-    // Whoever stayed becomes player 1 of a fresh board in the same room; the
-    // frontend treats a repeated game:joined as a full reset.
+    // Pre-game or post-game exit: whoever stayed becomes player 1 of a fresh
+    // board in the same room; the frontend treats a repeated game:joined as
+    // a full reset.
     room.seats = [survivor, null];
     room.userIds = [survivorUserId, null];
     room.logins = [survivorLogin, null];
@@ -353,6 +411,7 @@ export class SuperTttGateway
       status: 'waiting',
       readyTimer: null,
       inactivityTimer: null,
+      emptyTimer: null,
     };
   }
 
@@ -394,10 +453,28 @@ export class SuperTttGateway
     }
   }
 
+  private startEmptyTimer(code: string, room: Room): void {
+    this.clearEmptyTimer(room);
+    room.emptyTimer = setTimeout(() => {
+      this.logger.warn(
+        `room ${code}: nobody came back within ${EMPTY_GRACE_MS / 1000}s — dropping`,
+      );
+      this.destroyRoom(code, room);
+    }, EMPTY_GRACE_MS);
+  }
+
+  private clearEmptyTimer(room: Room): void {
+    if (room.emptyTimer) {
+      clearTimeout(room.emptyTimer);
+      room.emptyTimer = null;
+    }
+  }
+
   /** Disconnect every seated client and drop the room (used by timeouts). */
   private destroyRoom(code: string, room: Room): void {
     this.clearReadyTimer(room);
     this.clearInactivityTimer(room);
+    this.clearEmptyTimer(room);
     this.rooms.delete(code);
     void this.lobbies.remove(code);
     for (const id of room.seats) {
