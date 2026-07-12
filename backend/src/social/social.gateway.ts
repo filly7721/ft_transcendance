@@ -10,7 +10,11 @@ import {
 } from '@nestjs/websockets';
 import { Namespace, Socket } from 'socket.io';
 import { PresenceService } from '../presence/presence.service';
-import { FriendsService } from '../friends/friends.service';
+import {
+  FriendsService,
+  type FriendRequestResponse,
+  type FriendResponse,
+} from '../friends/friends.service';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
 
 /**
@@ -26,8 +30,12 @@ import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
  *
  * The frontend listens for:
  *   presence:update    { userId, online } — a friend came online/offline
- *   friends:request     { from: { login, displayName, avatarUrl } } — new friend request received
- *   friends:accept      { login } — your friend request was accepted
+ *   friends:request     { request: FriendRequestResponse } — new friend request received
+ *   friends:accept      { friend: FriendResponse } — your friend request was accepted
+ *
+ * Both friends:* payloads carry the full row (not just a hint), so clients
+ * apply them to local state directly instead of re-fetching over REST —
+ * re-fetch-per-event was tripping the HTTP rate limiter (429s).
  *
  * The frontend can also request the current state:
  *   social:state → ack with { onlineFriendIds: string[], pendingRequests: number }
@@ -139,30 +147,39 @@ export class SocialGateway
 
   /**
    * Notify a user that they received a new friend request.
-   * Called by FriendsService when a request is created.
+   * Called by FriendsService when a request is created. The payload is the
+   * same shape as a GET /friends/requests incoming entry — including the
+   * request id the client needs for accept/reject — so the friends page can
+   * append it locally without a REST re-fetch.
    */
-  async notifyFriendRequest(addresseeId: string, fromLogin: string, fromDisplayName: string, fromAvatarUrl: string | null): Promise<void> {
+  async notifyFriendRequest(
+    addresseeId: string,
+    request: FriendRequestResponse,
+  ): Promise<void> {
     const sockets = await this.server.fetchSockets();
     for (const s of sockets) {
       const data = s.data as { userId?: string };
       if (data.userId === addresseeId) {
-        this.server.to(s.id).emit('friends:request', {
-          from: { login: fromLogin, displayName: fromDisplayName, avatarUrl: fromAvatarUrl },
-        });
+        this.server.to(s.id).emit('friends:request', { request });
       }
     }
   }
 
   /**
    * Notify a user that their friend request was accepted.
-   * Called by FriendsService when a request is accepted.
+   * Called by FriendsService when a request is accepted. The payload is the
+   * acceptor as a full GET /friends entry, so the client can insert them
+   * into its friends list without a REST re-fetch.
    */
-  async notifyFriendAccept(requesterId: string, acceptorLogin: string): Promise<void> {
+  async notifyFriendAccept(
+    requesterId: string,
+    friend: FriendResponse,
+  ): Promise<void> {
     const sockets = await this.server.fetchSockets();
     for (const s of sockets) {
       const data = s.data as { userId?: string };
       if (data.userId === requesterId) {
-        this.server.to(s.id).emit('friends:accept', { login: acceptorLogin });
+        this.server.to(s.id).emit('friends:accept', { friend });
       }
     }
   }
