@@ -122,16 +122,17 @@ export class FriendsService {
         addresseeId: addressee.id,
         status: STATUS_PENDING,
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, createdAt: true },
     });
 
     // Notify the addressee in real-time (if they're connected to /social)
-    void this.social.notifyFriendRequest(
-      addressee.id,
-      requester.login,
-      requester.displayName,
-      requester.avatarUrl,
-    );
+    void this.social.notifyFriendRequest(addressee.id, {
+      id: friendship.id,
+      login: requester.login,
+      displayName: requester.displayName,
+      avatarUrl: requester.avatarUrl,
+      createdAt: friendship.createdAt,
+    });
 
     return {
       id: friendship.id,
@@ -165,17 +166,26 @@ export class FriendsService {
       throw new ConflictException(`request is already ${friendship.status}`);
     }
 
-    await this.prisma.friendship.update({
+    const updated = await this.prisma.friendship.update({
       where: { id: requestId },
       data: { status: STATUS_ACCEPTED },
+      select: { updatedAt: true },
     });
 
     // Notify the requester in real-time that their request was accepted
     const acceptor = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { login: true },
+      select: { id: true, login: true, displayName: true, avatarUrl: true },
     });
-    void this.social.notifyFriendAccept(friendship.requesterId, acceptor.login);
+    void this.social.notifyFriendAccept(friendship.requesterId, {
+      id: acceptor.id,
+      login: acceptor.login,
+      displayName: acceptor.displayName,
+      avatarUrl: acceptor.avatarUrl,
+      online: this.presence.isOnline(userId),
+      friendshipId: friendship.id,
+      friendsSince: updated.updatedAt,
+    });
 
     return { message: 'friend request accepted' };
   }
