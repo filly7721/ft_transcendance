@@ -16,6 +16,7 @@ import {
   type GameUpdateEvent,
   type JoinedEvent,
   type MoveAck,
+  type PresenceEvent,
 } from "./superTttProtocol";
 import { getToken } from "./auth-storage";
 
@@ -29,6 +30,8 @@ const ERROR_NOTICES: Record<string, string> = {
   lobby_full: "Lobby is full — try again later",
   rate_limited: "Too many connections from your network",
   timeout: "Game timed out from inactivity",
+  invalid_lobby: "Invalid room code — go back to the lobby",
+  superseded: "You opened this game somewhere else — playing there now",
 };
 
 export interface SuperTttGame {
@@ -37,6 +40,8 @@ export interface SuperTttGame {
   myMark: Mark | null;
   /** Opponent's login, null until both players are seated. */
   opponent: string | null;
+  /** False while the opponent is disconnected mid-game (they may come back). */
+  opponentOnline: boolean;
   state: SuperTttState;
   /** Final result reported by the server, null while playing. */
   result: GameOverEvent | null;
@@ -55,6 +60,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
   const [phase, setPhase] = useState<GamePhase>("connecting");
   const [myMark, setMyMark] = useState<Mark | null>(null);
   const [opponent, setOpponent] = useState<string | null>(null);
+  const [opponentOnline, setOpponentOnline] = useState(true);
   const [state, setState] = useState<SuperTttState>(createInitialState);
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -80,6 +86,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
       seatRef.current = event.player;
       setMyMark(markOf(event.player));
       setOpponent(null);
+      setOpponentOnline(true);
       setState(snapshotToState(event.board));
       setResult(null);
       setPhase("waiting");
@@ -89,6 +96,10 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
       setOpponent(other?.login ?? null);
       setPhase("playing");
       setNotice(null);
+    });
+    socket.on("game:presence", (event: PresenceEvent) => {
+      // Only the opponent's presence matters to this client.
+      if (event.player !== seatRef.current) setOpponentOnline(event.connected);
     });
     socket.on("game:update", (event: GameUpdateEvent) => {
       // The server already validated this move (ours or the opponent's), so
@@ -134,5 +145,5 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     [phase, myMark, state],
   );
 
-  return { phase, myMark, opponent, state, result, notice, sendMove };
+  return { phase, myMark, opponent, opponentOnline, state, result, notice, sendMove };
 }
