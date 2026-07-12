@@ -19,13 +19,21 @@ type Props = {
   room: string;
   /** Opponent's login, or null while waiting for one. */
   opponent: string | null;
+  /** False while the opponent is disconnected mid-game; defaults to true. */
+  opponentOnline?: boolean;
   /** Game-specific status content, rendered in the middle panel. */
   children: ReactNode;
   /** Optional extra cells appended after OPPONENT (e.g. a score cell). */
   trailing?: ReactNode;
 };
 
-export default function GameStatusBar({ room, opponent, children, trailing }: Props) {
+export default function GameStatusBar({
+  room,
+  opponent,
+  opponentOnline = true,
+  children,
+  trailing,
+}: Props) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 border border-arcade-border bg-arcade-panel px-8 py-4">
       <StatusCell label="ROOM">{room}</StatusCell>
@@ -35,7 +43,16 @@ export default function GameStatusBar({ room, opponent, children, trailing }: Pr
       </div>
 
       <StatusCell label="OPPONENT">
-        {opponent ?? <span className="text-arcade-muted animate-blink">???</span>}
+        {opponent === null ? (
+          <span className="text-arcade-muted animate-blink">???</span>
+        ) : opponentOnline ? (
+          opponent
+        ) : (
+          <>
+            <span className="text-arcade-muted">{opponent}</span>
+            <span className="ml-2 text-neon-red animate-blink">DISCONNECTED</span>
+          </>
+        )}
       </StatusCell>
 
       {trailing}

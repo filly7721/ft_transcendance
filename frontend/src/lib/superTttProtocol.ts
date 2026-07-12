@@ -53,6 +53,12 @@ export interface GameOverEvent {
   reason: "boards" | "draw";
 }
 
+/** A seated player dropped mid-game (or came back); the game keeps running. */
+export interface PresenceEvent {
+  player: PlayerIndex;
+  connected: boolean;
+}
+
 export function markOf(player: PlayerIndex): Mark {
   return player === 1 ? "X" : "O";
 }

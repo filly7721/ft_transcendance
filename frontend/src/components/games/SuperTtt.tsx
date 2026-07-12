@@ -12,7 +12,8 @@ import GameStatusBar, { StatusCell } from "./GameStatusBar";
 // the useSuperTtt hook: clicks are validated locally and sent to the server,
 // and the board only changes when the server echoes validated moves back.
 export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
-  const { phase, myMark, opponent, state, notice, sendMove } = useSuperTtt(lobbyCode);
+  const { phase, myMark, opponent, opponentOnline, state, notice, sendMove } =
+    useSuperTtt(lobbyCode);
 
   // Boards are clickable only while the game runs and it is our turn; the
   // hook re-checks every move anyway before emitting it.
@@ -23,6 +24,7 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
       <GameStatusBar
         room={lobbyCode}
         opponent={opponent}
+        opponentOnline={opponentOnline}
         trailing={
           <StatusCell label="SCORE">
             <span className="glow-cyan">

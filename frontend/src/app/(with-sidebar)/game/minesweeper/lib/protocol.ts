@@ -45,6 +45,12 @@ export interface GameOverEvent {
   reason: GameOverReason;
 }
 
+/** A seated player dropped mid-game (or came back); the race keeps running. */
+export interface PresenceEvent {
+  player: PlayerIndex;
+  connected: boolean;
+}
+
 export function makeHiddenBoard(rows: number, cols: number): Cell[][] {
   return Array.from({ length: rows }, () =>
     Array.from({ length: cols }, (): Cell => "h"),
