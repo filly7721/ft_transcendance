@@ -129,12 +129,28 @@ export class LobbiesService {
   }
 
   /**
+   * Does a lobby row exist for this code and game? The game gateways call
+   * this before opening a NEW in-memory room, so a made-up code (hand-typed
+   * URL, guessed code) can't fabricate a working game room. Already-live
+   * rooms are still served from memory, so mid-game resumes survive even
+   * if the row has since been cleaned up.
+   */
+  async existsForGame(roomCode: string, game: string): Promise<boolean> {
+    const row = await this.prisma.lobby.findUnique({
+      where: { id: roomCode },
+      select: { game: true },
+    });
+    return row?.game === game;
+  }
+
+  /**
    * Mark a lobby as IN_PROGRESS — called by the game gateways when both
    * players connect. Hides the lobby from `list()` (which only shows
    * WAITING) so nobody joins a room whose game already started.
    *
-   * Best-effort: gateways also serve rooms whose code has no DB row (e.g.
-   * hand-typed dev codes), so a missing lobby is silently ignored.
+   * Best-effort: the row may already be gone (e.g. auto-leave deleted it
+   * while its game kept running in memory), so a missing lobby is
+   * silently ignored.
    */
   async markInProgress(roomCode: string): Promise<void> {
     try {
