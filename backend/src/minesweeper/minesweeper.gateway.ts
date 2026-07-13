@@ -301,7 +301,7 @@ export class MinesweeperGateway
   handleReveal(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<MovePayload> | undefined,
-  ): MoveAck {
+  ): Promise<MoveAck> {
     return this.applyMove(client, 'reveal', payload);
   }
 
@@ -309,15 +309,15 @@ export class MinesweeperGateway
   handleFlag(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<MovePayload> | undefined,
-  ): MoveAck {
+  ): Promise<MoveAck> {
     return this.applyMove(client, 'flag', payload);
   }
 
-  private applyMove(
+  private async applyMove(
     client: Socket,
     kind: 'reveal' | 'flag',
     payload: Partial<MovePayload> | undefined,
-  ): MoveAck {
+  ): Promise<MoveAck> {
     const found = this.roomOf(client);
     if (!found) return { ok: false, reason: 'you are not in the game' };
     const { code, room, seat } = found;
@@ -367,30 +367,23 @@ export class MinesweeperGateway
       const reason = result.outcome === 'win' ? 'cleared' : 'mine';
       this.server.to(code).emit('game:over', { winner, reason });
       this.logger.log(`room ${code} game over: player ${winner} wins (${reason})`);
-      void this.recordStats(room, winner);
+
+      // Record game results for stats (win for winner, loss for loser).
+      const winnerIdx = winner - 1; // 0-indexed
+      const loserIdx = 1 - winnerIdx;
+      const winnerId = room.userIds[winnerIdx];
+      const loserId = room.userIds[loserIdx];
+      if (winnerId && loserId) {
+        await this.prisma.gameResult.createMany({
+          data: [
+            { userId: winnerId, game: 'minesweeper', result: 'win' },
+            { userId: loserId, game: 'minesweeper', result: 'loss' },
+          ],
+        });
+        this.logger.log(`stats recorded for room ${code}`);
+      }
     }
     return { ok: true };
-  }
-
-  private async recordStats(room: Room, winner: PlayerIndex): Promise<void> {
-    const p1Id = room.userIds[0];
-    const p2Id = room.userIds[1];
-    if (!p1Id || !p2Id) return;
-
-    const game = 'minesweeper';
-    try {
-      await Promise.all([
-        this.prisma.gameResult.create({
-          data: { userId: p1Id, game, result: winner === 1 ? 'win' : 'loss' },
-        }),
-        this.prisma.gameResult.create({
-          data: { userId: p2Id, game, result: winner === 2 ? 'win' : 'loss' },
-        }),
-      ]);
-      this.logger.log(`recorded stats for game ${game} between ${p1Id} and ${p2Id}`);
-    } catch (err) {
-      this.logger.error(`failed to record stats for game ${game}:`, err);
-    }
   }
 
   // ----- room lookup ---------------------------------------------------------

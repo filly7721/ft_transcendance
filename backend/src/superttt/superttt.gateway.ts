@@ -325,10 +325,10 @@ export class SuperTttGateway
   }
 
   @SubscribeMessage('game:move')
-  handleMove(
+  async handleMove(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<MovePayload> | undefined,
-  ): MoveAck {
+  ): Promise<MoveAck> {
     const found = this.roomOf(client);
     if (!found) {
       return { ok: false, reason: 'you are not in the game' };
@@ -378,38 +378,38 @@ export class SuperTttGateway
           overEvent.winner ? `player ${overEvent.winner} wins` : 'draw'
         } (${overEvent.reason})`,
       );
-      void this.recordStats(room, overEvent.winner);
+
+      // Record game results for stats (win/loss/draw for both players).
+      const p1Id = room.userIds[0];
+      const p2Id = room.userIds[1];
+      if (p1Id && p2Id) {
+        if (overEvent.winner === null) {
+          // Draw: both get 'draw'
+          await this.prisma.gameResult.createMany({
+            data: [
+              { userId: p1Id, game: 'super-tic-tac-toe', result: 'draw' },
+              { userId: p2Id, game: 'super-tic-tac-toe', result: 'draw' },
+            ],
+          });
+        } else {
+          // Win/loss
+          const winnerIdx = overEvent.winner - 1; // 0-indexed
+          const loserIdx = 1 - winnerIdx;
+          const winnerId = room.userIds[winnerIdx];
+          const loserId = room.userIds[loserIdx];
+          if (winnerId && loserId) {
+            await this.prisma.gameResult.createMany({
+              data: [
+                { userId: winnerId, game: 'super-tic-tac-toe', result: 'win' },
+                { userId: loserId, game: 'super-tic-tac-toe', result: 'loss' },
+              ],
+            });
+          }
+        }
+        this.logger.log(`stats recorded for room ${code}`);
+      }
     }
     return { ok: true };
-  }
-
-  private async recordStats(room: Room, winner: PlayerIndex | null): Promise<void> {
-    const p1Id = room.userIds[0];
-    const p2Id = room.userIds[1];
-    if (!p1Id || !p2Id) return;
-
-    const game = 'super-tic-tac-toe';
-    try {
-      await Promise.all([
-        this.prisma.gameResult.create({
-          data: {
-            userId: p1Id,
-            game,
-            result: winner === 1 ? 'win' : winner === null ? 'draw' : 'loss',
-          },
-        }),
-        this.prisma.gameResult.create({
-          data: {
-            userId: p2Id,
-            game,
-            result: winner === 2 ? 'win' : winner === null ? 'draw' : 'loss',
-          },
-        }),
-      ]);
-      this.logger.log(`recorded stats for game ${game} between ${p1Id} and ${p2Id}`);
-    } catch (err) {
-      this.logger.error(`failed to record stats for game ${game}:`, err);
-    }
   }
 
   // ----- room lookup ---------------------------------------------------------

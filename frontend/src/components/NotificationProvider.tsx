@@ -1,10 +1,11 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
 import { getToken } from "@/lib/auth-storage";
 import { fetchFriendRequests } from "@/lib/friends";
 import { apiFetch } from "@/lib/api";
+import { useBfcache } from "@/lib/useBfcache";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 const SOCIAL_WS = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/social`;
@@ -51,6 +52,39 @@ export default function NotificationProvider({ children }: { children: React.Rea
   const [friendRequestCount, setFriendRequestCount] = useState(0);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [onlineFriendIds, setOnlineFriendIds] = useState<Set<string>>(new Set());
+  const socketRef = useRef<Socket | null>(null);
+
+  // Gracefully disconnect/reconnect the social socket on bfcache freeze/restore.
+  useBfcache(socketRef, () => {
+    const token = getToken();
+    if (!token) return;
+    const s = io(SOCIAL_WS, { auth: { token }, transports: ["websocket"] });
+    socketRef.current = s;
+    // Re-attach handlers by reloading the page state
+    s.on("connect", () => {
+      s.emit("social:state", {}, (ack: { ok: boolean; data?: { onlineFriends: string[]; pendingRequests: number } }) => {
+        if (ack.ok && ack.data) {
+          setOnlineFriendIds(new Set(ack.data.onlineFriends));
+          setFriendRequestCount(ack.data.pendingRequests);
+        }
+      });
+    });
+    s.on("presence:update", ({ userId, online }: { userId: string; online: boolean }) => {
+      setOnlineFriendIds((prev) => {
+        const next = new Set(prev);
+        if (online) next.add(userId); else next.delete(userId);
+        return next;
+      });
+      window.dispatchEvent(new CustomEvent("presence:update", { detail: { userId, online } }));
+    });
+    s.on("friends:request", () => {
+      setFriendRequestCount((prev) => prev + 1);
+      refresh();
+      window.dispatchEvent(new CustomEvent("friends:request"));
+    });
+    s.on("friends:accept", () => { refresh(); window.dispatchEvent(new CustomEvent("friends:accept")); });
+    s.on("profile:update", () => { window.dispatchEvent(new CustomEvent("profile:update")); });
+  });
 
   const refresh = useCallback(async () => {
     const token = getToken();
@@ -147,8 +181,7 @@ export default function NotificationProvider({ children }: { children: React.Rea
     const interval = setInterval(refresh, 30_000);
 
     return () => {
-      // Defer disconnect to prevent browser warnings in React Strict Mode
-      setTimeout(() => s.disconnect(), 1000);
+      s.disconnect();
       window.removeEventListener("chat:unread", onChatUnread);
       clearInterval(interval);
     };

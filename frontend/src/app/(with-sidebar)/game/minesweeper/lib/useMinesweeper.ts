@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import { useBfcache } from "@/lib/useBfcache";
 import type { Cell } from "../components/CellDisplay";
 import {
   applyChanges,
@@ -61,6 +62,12 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+
+  // Gracefully disconnect/reconnect the game socket on bfcache freeze/restore.
+  useBfcache(socketRef, () => {
+    const socket = io(SOCKET_URL, { query: { lobby: lobbyCode }, transports: ["websocket"] });
+    socketRef.current = socket;
+  });
   // Our seat, readable inside socket handlers without a stale closure.
   const seatRef = useRef<PlayerIndex | null>(null);
 
