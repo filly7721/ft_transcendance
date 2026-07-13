@@ -7,6 +7,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { LobbiesService } from './lobbies.service';
 import { CreateLobbyDto } from './dto/create-lobby.dto';
@@ -41,6 +42,7 @@ export class LobbiesController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('jwt')
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 creates / min / IP
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -51,6 +53,7 @@ export class LobbiesController {
 
   @Post(':id/join')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('jwt')
   @Throttle({ default: { limit: 20, ttl: 60_000 } }) // 20 joins / min / IP
   join(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.lobbies.join(user.id, id);
