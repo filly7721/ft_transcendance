@@ -52,3 +52,7 @@ export const accentGlow: Record<GameAccent, string> = {
 };
 
 export const gameHref = (game: Game) => `/lobby/${game.slug}`;
+
+/** In-room game session URL — where create/join drop you after the lobby. */
+export const gameRoomHref = (slug: string, roomCode: string) =>
+  `/game/${slug}?room=${encodeURIComponent(roomCode)}`;
