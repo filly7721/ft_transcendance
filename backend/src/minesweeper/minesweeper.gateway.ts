@@ -14,6 +14,7 @@ import { MinesweeperEngine } from './engine/minesweeper.engine';
 import { DEFAULT_MAP } from './engine/maps';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
 import { LobbiesService } from '../lobbies/lobbies.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Minesweeper versus gateway, one race per lobby room.
@@ -104,6 +105,7 @@ export class MinesweeperGateway
     private readonly jwt: JwtService,
     private readonly rateLimiter: WsRateLimiter,
     private readonly lobbies: LobbiesService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -365,8 +367,30 @@ export class MinesweeperGateway
       const reason = result.outcome === 'win' ? 'cleared' : 'mine';
       this.server.to(code).emit('game:over', { winner, reason });
       this.logger.log(`room ${code} game over: player ${winner} wins (${reason})`);
+      void this.recordStats(room, winner);
     }
     return { ok: true };
+  }
+
+  private async recordStats(room: Room, winner: PlayerIndex): Promise<void> {
+    const p1Id = room.userIds[0];
+    const p2Id = room.userIds[1];
+    if (!p1Id || !p2Id) return;
+
+    const game = 'minesweeper';
+    try {
+      await Promise.all([
+        this.prisma.gameResult.create({
+          data: { userId: p1Id, game, result: winner === 1 ? 'win' : 'loss' },
+        }),
+        this.prisma.gameResult.create({
+          data: { userId: p2Id, game, result: winner === 2 ? 'win' : 'loss' },
+        }),
+      ]);
+      this.logger.log(`recorded stats for game ${game} between ${p1Id} and ${p2Id}`);
+    } catch (err) {
+      this.logger.error(`failed to record stats for game ${game}:`, err);
+    }
   }
 
   // ----- room lookup ---------------------------------------------------------
