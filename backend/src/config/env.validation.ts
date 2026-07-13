@@ -33,9 +33,13 @@ class EnvVars {
   @IsString()
   JWT_EXPIRES_IN: string = '7d';
 
-  /** Allowed frontend origin for CORS. */
+  /**
+   * The origin the frontend is served from. The only place that URL is
+   * configured: it is the allowed origin for both HTTP CORS and the websocket
+   * gateways (see config/frontend-origin, which reads it).
+   */
   @IsString()
-  CORS_ORIGIN: string = 'http://localhost:3000';
+  FRONTEND_URL: string = 'http://localhost:3000';
 }
 
 /**

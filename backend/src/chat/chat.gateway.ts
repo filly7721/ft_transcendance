@@ -13,6 +13,7 @@ import { Namespace, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { PresenceService } from '../presence/presence.service';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import { FRONTEND_ORIGIN } from '../config/frontend-origin';
 
 /**
  * Chat WebSocket gateway.
@@ -58,7 +59,7 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 @WebSocketGateway({
   namespace: 'chat',
   cors: {
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    origin: FRONTEND_ORIGIN,
     credentials: true,
   },
   maxHttpBufferSize: 1e5, // M1: 100KB (chat messages can be longer)

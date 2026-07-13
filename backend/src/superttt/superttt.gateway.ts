@@ -18,6 +18,7 @@ import {
   SuperTttEngine,
 } from './engine/superttt.engine';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import { FRONTEND_ORIGIN } from '../config/frontend-origin';
 import { LobbiesService } from '../lobbies/lobbies.service';
 
 /**
@@ -113,7 +114,7 @@ const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
 @WebSocketGateway({
   namespace: 'super-tic-tac-toe',
   cors: {
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    origin: FRONTEND_ORIGIN,
     credentials: true,
   },
   maxHttpBufferSize: 1e4, // M1: 10KB — more than enough for { boardIdx, cellIdx }
