@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsInt,
   IsObject,
@@ -23,6 +24,11 @@ import {
  */
 export class CreateLobbyDto {
   /** Game slug (e.g. "minesweeper", "super-tic-tac-toe"). */
+  @ApiProperty({
+    description: 'Game slug the lobby is for.',
+    enum: ['minesweeper', 'super-tic-tac-toe'],
+    example: 'super-tic-tac-toe',
+  })
   @IsString()
   @Matches(/^[a-z0-9-]+$/, {
     message: 'game must be a slug (lowercase letters, digits, hyphens)',
@@ -30,17 +36,32 @@ export class CreateLobbyDto {
   game!: string;
 
   /** Human-readable lobby name shown in the browser. */
+  @ApiProperty({
+    description: 'Lobby name shown in the lobby browser.',
+    example: 'friday night',
+    maxLength: 50,
+  })
   @IsString()
   @MaxLength(50)
   name!: string;
 
   /** Maximum number of players the lobby accepts (frontend offers 2 or 4). */
+  @ApiProperty({
+    description: 'Player cap for the lobby.',
+    minimum: 2,
+    maximum: 4,
+    example: 2,
+  })
   @IsInt()
   @Min(2)
   @Max(4)
   maxPlayers!: number;
 
   /** Open-ended key/value options bag (e.g. { mode: "CASUAL" }). */
+  @ApiPropertyOptional({
+    description: 'Open-ended options bag, echoed back verbatim.',
+    example: { mode: 'CASUAL' },
+  })
   @IsOptional()
   @IsObject()
   options?: Record<string, string>;

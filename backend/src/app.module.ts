@@ -16,6 +16,8 @@ import { UploadsModule } from './uploads/uploads.module';
 import { SocialModule } from './social/social.module';
 import { MinesweeperModule } from './minesweeper/minesweeper.module';
 import { SuperTttModule } from './superttt/superttt.module';
+import { ApiKeysModule } from './api-keys/api-keys.module';
+import { PublicApiModule } from './public-api/public-api.module';
 import { validateEnv } from './config/env.validation';
 
 /**
@@ -30,6 +32,8 @@ import { validateEnv } from './config/env.validation';
  *  - UsersModule + AuthModule: the auth feature.
  *  - LobbiesModule: the lobby-rooms feature.
  *  - MinesweeperModule + SuperTttModule: the two WS game gateways.
+ *  - ApiKeysModule + PublicApiModule: the API-key-authenticated public API
+ *    (`/api/v1/*`, documented at `/api/docs`).
  *
  * The ThrottlerGuard is registered as an APP_GUARD so every route is
  * rate-limited by default; specific routes override the limit with @Throttle.
@@ -52,6 +56,8 @@ import { validateEnv } from './config/env.validation';
     SocialModule,
     MinesweeperModule,
     SuperTttModule,
+    ApiKeysModule,
+    PublicApiModule,
   ],
   controllers: [AppController],
   providers: [

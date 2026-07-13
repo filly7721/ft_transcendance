@@ -57,8 +57,46 @@ model User {
   messagesReceived     Message[]    @relation("MessageReceiver")
   /// Game results recorded for this user (wins, losses, draws).
   gameResults          GameResult[] @relation("GameResults")
+  /// Public-API keys this user has issued. Deleted with the user.
+  apiKeys              ApiKey[]     @relation("ApiKeys")
 
   @@map("users")
+}
+
+/// An API key granting programmatic access to the public API (`/api/v1/*`).
+///
+/// Keys are minted by a logged-in user and act on that user's behalf: a key
+/// can do what its owner can do, and nothing more. The raw key is shown to
+/// the caller EXACTLY ONCE, at creation; we only persist its SHA-256 hash,
+/// so a database leak cannot be replayed against the API (same reasoning as
+/// PasswordResetToken.tokenHash).
+///
+/// `prefix` is the first few characters of the raw key, stored in the clear
+/// purely so the owner can tell their keys apart in a list ("arc_9f3c…") —
+/// it is far too short to brute-force the rest of the key from.
+model ApiKey {
+  /// UUID primary key. Used in the revoke route (`DELETE /keys/:id`).
+  id         String    @id @default(uuid())
+  /// The user this key acts on behalf of. UUID FK → User.id.
+  userId     String
+  /// Human-readable label chosen by the owner ("my tournament bot").
+  name       String
+  /// SHA-256 hash of the raw key. Looked up by this column on every request.
+  keyHash    String    @unique
+  /// Display-only prefix of the raw key (e.g. "arc_9f3c1a2b"), for the UI.
+  prefix     String
+  /// Last time a request authenticated with this key. Null = never used.
+  lastUsedAt DateTime?
+  /// Set when the owner revokes the key. Non-null = key no longer accepted.
+  /// Revoked keys are kept (not deleted) so the prefix stays auditable.
+  revokedAt  DateTime?
+  /// Creation timestamp.
+  createdAt  DateTime  @default(now())
+
+  user User @relation("ApiKeys", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_keys")
 }
 
 /// A single-use password-reset token.
