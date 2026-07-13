@@ -6,6 +6,7 @@ import {
   applyChanges,
   makeHiddenBoard,
   type BoardUpdateEvent,
+  type CountdownEvent,
   type GameOverEvent,
   type GameStartEvent,
   type JoinedEvent,
@@ -17,7 +18,13 @@ import { getToken } from "@/lib/auth-storage";
 
 const SOCKET_URL = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/minesweeper`;
 
-export type GamePhase = "connecting" | "waiting" | "playing" | "over" | "rejected";
+export type GamePhase =
+  | "connecting"
+  | "waiting"
+  | "countdown"
+  | "playing"
+  | "over"
+  | "rejected";
 
 // Friendlier text for the reasons the server rejects a connection with.
 const ERROR_NOTICES: Record<string, string> = {
@@ -30,6 +37,9 @@ const ERROR_NOTICES: Record<string, string> = {
 
 export interface MinesweeperGameState {
   phase: GamePhase;
+  /** Seconds still to go before the race starts (3, 2, 1); null outside the
+   *  'countdown' phase. */
+  countdown: number | null;
   player: PlayerIndex | null;
   /** Opponent's login, null until both players are seated. */
   opponent: string | null;
@@ -52,6 +62,12 @@ export interface MinesweeperGameState {
  */
 export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
   const [phase, setPhase] = useState<GamePhase>("connecting");
+  // When the pre-race countdown runs out, as a local timestamp: the server
+  // sends a duration, so nothing here depends on the two clocks agreeing.
+  // `now` is only ticked while that countdown runs; the digit itself is
+  // derived from the pair below.
+  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
   const [player, setPlayer] = useState<PlayerIndex | null>(null);
   const [opponent, setOpponent] = useState<string | null>(null);
   const [opponentOnline, setOpponentOnline] = useState(true);
@@ -85,15 +101,31 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
       setMyBoard(makeHiddenBoard(event.board.rows, event.board.cols));
       setEnemyBoard(makeHiddenBoard(event.board.rows, event.board.cols));
       setResult(null);
+      setCountdownEndsAt(null);
       setPhase("waiting");
     };
 
     // Sent on first join AND when the lobby resets because the opponent
     // left — either way it means "fresh board, wait for player 2".
     socket.on("game:joined", seat);
+    // Both seats are taken; the server holds the race for a few seconds. It
+    // also decides when the race actually starts (game:start below) — this is
+    // only the display, so a slow tick here can't hand anyone a head start.
+    socket.on("game:countdown", (event: CountdownEvent) => {
+      const other = event.players?.find((p) => p.player !== seatRef.current);
+      setOpponent(other?.login ?? null);
+      // Anchor the clock and the deadline in the same instant, so the first
+      // frame shows the full count rather than a leftover `now`.
+      const startedAt = Date.now();
+      setNow(startedAt);
+      setCountdownEndsAt(startedAt + event.ms);
+      setPhase("countdown");
+      setNotice(null);
+    });
     socket.on("game:start", (event: GameStartEvent) => {
       const other = event.players?.find((p) => p.player !== seatRef.current);
       setOpponent(other?.login ?? null);
+      setCountdownEndsAt(null);
       setPhase("playing");
       setNotice(null);
     });
@@ -130,6 +162,20 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     };
   }, [lobbyCode]);
 
+  // Move the clock while the countdown runs — faster than 1Hz, so the digit
+  // never sits a whole second behind the deadline it was handed. Nothing ticks
+  // outside the countdown.
+  useEffect(() => {
+    if (countdownEndsAt === null) return;
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, [countdownEndsAt]);
+
+  const countdown =
+    countdownEndsAt === null
+      ? null
+      : Math.max(0, Math.ceil((countdownEndsAt - now) / 1000));
+
   const sendMove = useCallback((kind: "game:reveal" | "game:flag", row: number, col: number) => {
     socketRef.current?.emit(kind, { row, col }, (ack: MoveAck) => {
       if (!ack.ok) setNotice(ack.reason);
@@ -147,6 +193,7 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
 
   return {
     phase,
+    countdown,
     player,
     opponent,
     opponentOnline,
