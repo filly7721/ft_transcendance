@@ -1,5 +1,0 @@
-TODO:
-useEffect
-fetch
-SSR
-remove oath
