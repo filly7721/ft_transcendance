@@ -1,10 +1,18 @@
 import { games, gameHref } from "@/lib/games";
 import NavLink from "./NavLink";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mb-8">
-      <p className="mb-2 px-4 font-arcade text-[10px] text-arcade-muted">{title}</p>
+      <p className="mb-2 px-4 font-arcade text-[10px] text-arcade-muted">
+        {title}
+      </p>
       <nav>{children}</nav>
     </div>
   );
@@ -28,19 +36,6 @@ export default function Sidebar() {
         ))}
       </Section>
 
-      {/* TEMPORARY: direct board previews for development — remove once real
-          game sessions exist at /lobby/<game>/[room-code] */}
-      <Section title="GAME PREVIEW">
-        {games.map((game) => (
-          <NavLink
-            key={game.slug}
-            href={`/game/${game.slug}`}
-            label={game.title}
-            icon="gamepad"
-          />
-        ))}
-      </Section>
-
       <Section title="SOCIAL">
         <NavLink href="/friends" label="Friends" icon="users" />
         <NavLink href="/chat" label="Chat" icon="chat" />
@@ -48,7 +43,6 @@ export default function Sidebar() {
 
       <Section title="ACCOUNT">
         <NavLink href="/settings" label="Settings" icon="settings" />
-        <NavLink href="/design" label="Design" icon="grid" />
       </Section>
     </aside>
   );
