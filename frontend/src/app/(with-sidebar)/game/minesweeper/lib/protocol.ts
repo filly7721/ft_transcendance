@@ -27,7 +27,18 @@ export interface JoinedEvent {
   board: { rows: number; cols: number; mineCount: number };
 }
 
-/** Both seats taken — the race begins. Carries who is sitting where. */
+/**
+ * Both seats taken — the race begins in `ms`, and moves are rejected until it
+ * does. A duration rather than a deadline, so our clock does not have to agree
+ * with the server's; rejoining mid-countdown gets whatever is left of it.
+ * Carries the seating too, so the opponent is named while the count runs.
+ */
+export interface CountdownEvent {
+  ms: number;
+  players: { player: PlayerIndex; login: string }[];
+}
+
+/** The countdown ran out — moves are accepted. Carries who is sitting where. */
 export interface GameStartEvent {
   players: { player: PlayerIndex; login: string }[];
 }

@@ -24,6 +24,9 @@
   --animate-blink: blink 1s step-end infinite;
   --animate-flicker: flicker 7s infinite;
   --animate-glow-pulse: glow-pulse 2.5s ease-in-out infinite;
+  --animate-pop-in: pop-in 0.22s ease-out;
+  /* One shot per digit — the countdown re-keys the element every tick. */
+  --animate-count-in: count-in 0.9s ease-out;
 }
 
 @keyframes blink {
@@ -42,6 +45,19 @@
 @keyframes glow-pulse {
   0%, 100% { filter: brightness(1); }
   50% { filter: brightness(1.4); }
+}
+
+/* Game-over popup arriving: a quick arcade snap, not a slow fade. */
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Each tick of the pre-game countdown: the digit lands, then recedes. */
+@keyframes count-in {
+  0% { opacity: 0.4; transform: scale(1.6); }
+  30% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0.75; transform: scale(0.95); }
 }
 
 /* Neon text glow utilities */
