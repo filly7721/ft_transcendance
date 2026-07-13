@@ -147,7 +147,8 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     });
 
     return () => {
-      socket.disconnect();
+      // Defer disconnect to prevent browser warnings in React Strict Mode
+      setTimeout(() => socket.disconnect(), 1000);
       socketRef.current = null;
     };
   }, [upsertConversation]);

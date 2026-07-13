@@ -147,7 +147,8 @@ export default function NotificationProvider({ children }: { children: React.Rea
     const interval = setInterval(refresh, 30_000);
 
     return () => {
-      s.disconnect();
+      // Defer disconnect to prevent browser warnings in React Strict Mode
+      setTimeout(() => s.disconnect(), 1000);
       window.removeEventListener("chat:unread", onChatUnread);
       clearInterval(interval);
     };
