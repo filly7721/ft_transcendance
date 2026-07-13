@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEmail,
   IsString,
@@ -16,9 +17,16 @@ import {
  *             least one lowercase letter, one uppercase letter and one digit.
  */
 export class RegisterDto {
+  @ApiProperty({ example: 'player@example.com' })
   @IsEmail()
   email!: string;
 
+  @ApiProperty({
+    description: 'Public username. Letters, digits, underscore and hyphen.',
+    example: 'player_one',
+    minLength: 3,
+    maxLength: 20,
+  })
   @IsString()
   @MinLength(3)
   @MaxLength(20)
@@ -28,6 +36,14 @@ export class RegisterDto {
   })
   login!: string;
 
+  @ApiProperty({
+    description:
+      'At least one lowercase letter, one uppercase letter and one digit. ' +
+      'Capped at 72 characters because bcrypt truncates beyond that.',
+    example: 'Passw0rdX',
+    minLength: 8,
+    maxLength: 72,
+  })
   @IsString()
   @MinLength(8)
   @MaxLength(72)
