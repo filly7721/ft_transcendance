@@ -1,6 +1,7 @@
 "use client";
 
 import { ButtonLink } from "@/components/Button";
+import Icon from "@/components/ui/Icon";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 export default function UserMenu() {
@@ -19,8 +20,9 @@ export default function UserMenu() {
       <button
         type="button"
         onClick={auth.logout}
-        className="uppercase tracking-widest text-arcade-muted transition-colors hover:text-neon-red"
+        className="flex items-center gap-2 uppercase tracking-widest text-arcade-muted transition-colors hover:text-neon-red"
       >
+        <Icon name="logout" />
         Logout
       </button>
     </div>

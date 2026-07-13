@@ -14,12 +14,17 @@ export default function Sidebar() {
   return (
     <aside className="hidden w-52 shrink-0 border-r border-arcade-border bg-arcade-panel/60 py-6 md:block">
       <Section title="MENU">
-        <NavLink href="/" label="Home" exact />
+        <NavLink href="/" label="Home" icon="home" exact />
       </Section>
 
       <Section title="LOBBY">
         {games.map((game) => (
-          <NavLink key={game.slug} href={gameHref(game)} label={game.title} />
+          <NavLink
+            key={game.slug}
+            href={gameHref(game)}
+            label={game.title}
+            icon={game.pixelIcon}
+          />
         ))}
       </Section>
 
@@ -27,17 +32,23 @@ export default function Sidebar() {
           game sessions exist at /lobby/<game>/[room-code] */}
       <Section title="GAME PREVIEW">
         {games.map((game) => (
-          <NavLink key={game.slug} href={`/game/${game.slug}`} label={game.title} />
+          <NavLink
+            key={game.slug}
+            href={`/game/${game.slug}`}
+            label={game.title}
+            icon="gamepad"
+          />
         ))}
       </Section>
 
       <Section title="SOCIAL">
-        <NavLink href="/friends" label="Friends" />
-        <NavLink href="/chat" label="Chat" />
+        <NavLink href="/friends" label="Friends" icon="users" />
+        <NavLink href="/chat" label="Chat" icon="chat" />
       </Section>
 
       <Section title="ACCOUNT">
-        <NavLink href="/settings" label="Settings" />
+        <NavLink href="/settings" label="Settings" icon="settings" />
+        <NavLink href="/design" label="Design" icon="grid" />
       </Section>
     </aside>
   );
