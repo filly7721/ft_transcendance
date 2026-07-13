@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLobbyDto } from './dto/create-lobby.dto';
+import { UpdateLobbyDto } from './dto/update-lobby.dto';
 import type { LobbyResponse } from './dto/lobby-response';
 import { generateRoomCode } from './room-code';
 
@@ -126,6 +127,79 @@ export class LobbiesService {
       include: { members: true, host: true },
     });
     return this.serialize(updated);
+  }
+
+  /** Fetch one lobby by room code. 404 if there is no such lobby. */
+  async get(roomCode: string): Promise<LobbyResponse> {
+    const lobby = await this.prisma.lobby.findUnique({
+      where: { id: roomCode },
+      include: { members: true, host: true },
+    });
+    if (!lobby) {
+      throw new NotFoundException('lobby not found');
+    }
+    return this.serialize(lobby);
+  }
+
+  /**
+   * Update a lobby's settings. Host-only: a lobby is edited by whoever created
+   * it, and everyone else gets a 404 rather than a 403 — a non-host has no
+   * business learning that a code they don't own is a real lobby.
+   *
+   * `maxPlayers` cannot be lowered below the number of players already in the
+   * room; that would leave the lobby over capacity and wedge `join()`, whose
+   * full-check compares against exactly this number.
+   */
+  async update(
+    userId: string,
+    roomCode: string,
+    dto: UpdateLobbyDto,
+  ): Promise<LobbyResponse> {
+    const lobby = await this.prisma.lobby.findUnique({
+      where: { id: roomCode },
+      include: { members: true },
+    });
+    if (!lobby || lobby.hostId !== userId) {
+      throw new NotFoundException('lobby not found');
+    }
+
+    if (dto.maxPlayers !== undefined && dto.maxPlayers < lobby.members.length) {
+      throw new ConflictException(
+        `lobby already has ${lobby.members.length} players — ` +
+          `maxPlayers cannot be lowered below that`,
+      );
+    }
+
+    const updated = await this.prisma.lobby.update({
+      where: { id: roomCode },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.maxPlayers !== undefined ? { maxPlayers: dto.maxPlayers } : {}),
+        ...(dto.options !== undefined
+          ? { options: JSON.stringify(dto.options) }
+          : {}),
+      },
+      include: { members: true, host: true },
+    });
+    return this.serialize(updated);
+  }
+
+  /**
+   * Delete a lobby you host. Same 404-not-403 rule as `update`.
+   *
+   * Distinct from `remove()`, which is the gateways' best-effort cleanup and
+   * checks nothing: this one is reachable by external callers, so it must
+   * verify ownership.
+   */
+  async removeAsHost(userId: string, roomCode: string): Promise<void> {
+    const lobby = await this.prisma.lobby.findUnique({
+      where: { id: roomCode },
+      select: { hostId: true },
+    });
+    if (!lobby || lobby.hostId !== userId) {
+      throw new NotFoundException('lobby not found');
+    }
+    await this.prisma.lobby.delete({ where: { id: roomCode } });
   }
 
   /**
