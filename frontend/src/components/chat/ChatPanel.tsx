@@ -11,8 +11,44 @@ import {
   type Message,
 } from "@/lib/chat";
 import { getToken } from "@/lib/auth-storage";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+/**
+ * Apply a message to the conversation list locally, without a REST re-fetch:
+ * update the peer's last message + unread count and move them to the top.
+ *
+ * Returns null when the list doesn't contain the peer yet (brand-new
+ * conversation) — the caller falls back to one fetchConversations() call,
+ * because the message payload lacks the peer's displayName/avatarUrl.
+ */
+function applyMessageToConversations(
+  prev: Conversation[] | null,
+  msg: Message,
+  myLogin: string | undefined,
+  activePeer: string | null,
+): Conversation[] | null {
+  if (!prev) return null;
+  // The sender's other tabs receive their own messages too, so the peer is
+  // whichever side of the message isn't us.
+  const peer = msg.senderLogin === myLogin ? msg.receiverLogin : msg.senderLogin;
+  const existing = prev.find((c) => c.peerLogin === peer);
+  if (!existing) return null;
+
+  const incoming = msg.senderLogin === peer;
+  const updated: Conversation = {
+    ...existing,
+    lastMessage: {
+      content: msg.content,
+      senderLogin: msg.senderLogin,
+      createdAt: msg.createdAt,
+    },
+    // Viewing the thread auto-marks it read; otherwise incoming bumps unread.
+    unreadCount: peer === activePeer ? 0 : existing.unreadCount + (incoming ? 1 : 0),
+  };
+  return [updated, ...prev.filter((c) => c.peerLogin !== peer)];
+}
 
 /**
  * Shared chat panel — used by both the /chat page (full size) and the
@@ -20,9 +56,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
  * active message thread on the right.
  *
  * Connects to the /chat WebSocket namespace for real-time messages,
- * typing indicators, read receipts, and presence updates.
+ * typing indicators, and read receipts. WS payloads are applied to local
+ * state directly — the only REST calls are the initial load and the
+ * new-conversation fallback (re-fetching per event caused 429s).
  */
 export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
+  const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [activePeer, setActivePeer] = useState<string | null>(initialPeer ?? null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -36,7 +75,27 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   // (each reconnect churned presence broadcasts to every friend).
   const activePeerRef = useRef<string | null>(activePeer);
   activePeerRef.current = activePeer;
+  // Same pattern for the data the once-connected socket handlers need:
+  // the current conversation list (updated in place per message) and our
+  // own login (to tell which side of a message is the peer).
+  const conversationsRef = useRef<Conversation[] | null>(conversations);
+  conversationsRef.current = conversations;
+  const myLoginRef = useRef<string | undefined>(user?.login);
+  myLoginRef.current = user?.login;
   const lastTypingSentRef = useRef(0);
+
+  // Apply a message to the conversation list; one fallback fetch only when
+  // the peer isn't in the list yet (their displayName/avatar are unknown).
+  const upsertConversation = useCallback((msg: Message) => {
+    const next = applyMessageToConversations(
+      conversationsRef.current,
+      msg,
+      myLoginRef.current,
+      activePeerRef.current,
+    );
+    if (next) setConversations(next);
+    else fetchConversations().then(setConversations).catch(() => {});
+  }, []);
 
   // Load conversations on mount
   useEffect(() => {
@@ -61,11 +120,8 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       if (msg.senderLogin === peer) {
         socket.emit("chat:read", { senderLogin: msg.senderLogin });
       }
-      // Refresh conversations to update last message + unread
-      fetchConversations().then(setConversations).catch(() => {});
-      // Dispatch a window event so the NotificationProvider can update the
-      // unread chat badge instantly (without waiting for the 30s poll).
-      window.dispatchEvent(new CustomEvent("chat:message", { detail: msg }));
+      // Update last message + unread locally from the payload itself
+      upsertConversation(msg);
     });
 
     socket.on("chat:typing", ({ senderLogin }: { senderLogin: string }) => {
@@ -83,10 +139,8 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       );
     });
 
-    socket.on("presence:update", () => {
-      // Refresh conversations to update online status
-      fetchConversations().then(setConversations).catch(() => {});
-    });
+    // (No presence:update handler: the conversation list doesn't render
+    // online status, so re-fetching it on every presence change was waste.)
 
     socket.on("chat:error", ({ reason }: { reason: string }) => {
       setError(reason);
@@ -96,12 +150,16 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [upsertConversation]);
 
   // Load history when activePeer changes
   useEffect(() => {
     if (!activePeer) return;
     setMessages([]);
+    // Opening a thread reads it — clear its unread badge locally too.
+    setConversations((prev) =>
+      prev ? prev.map((c) => (c.peerLogin === activePeer ? { ...c, unreadCount: 0 } : c)) : prev,
+    );
     fetchHistory(activePeer)
       .then((h) => {
         setMessages([...h.messages].reverse());
@@ -110,6 +168,15 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       })
       .catch((e) => setError(e.message));
   }, [activePeer]);
+
+  // Push the unread total to the NotificationProvider's badge whenever the
+  // conversation list changes — event-carried state instead of the provider
+  // re-fetching /chat/conversations on every message.
+  useEffect(() => {
+    if (!conversations) return;
+    const total = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
+    window.dispatchEvent(new CustomEvent("chat:unread", { detail: { total } }));
+  }, [conversations]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -127,7 +194,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       (ack: { ok: boolean; message?: Message; reason?: string }) => {
         if (ack.ok && ack.message) {
           setMessages((prev) => [...prev, ack.message!]);
-          fetchConversations().then(setConversations).catch(() => {});
+          upsertConversation(ack.message);
         } else if (!ack.ok) {
           setError(ack.reason ?? "failed to send");
         }

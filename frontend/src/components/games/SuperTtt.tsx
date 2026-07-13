@@ -6,12 +6,14 @@ import {
   type SuperTttState,
 } from "@/lib/superTtt";
 import { useSuperTtt, type GamePhase } from "@/lib/useSuperTtt";
+import GameStatusBar, { StatusCell } from "./GameStatusBar";
 
 // The playable super-tic-tac-toe game for one lobby. All game state lives in
 // the useSuperTtt hook: clicks are validated locally and sent to the server,
 // and the board only changes when the server echoes validated moves back.
 export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
-  const { phase, myMark, state, notice, sendMove } = useSuperTtt(lobbyCode);
+  const { phase, myMark, opponent, opponentOnline, state, notice, sendMove } =
+    useSuperTtt(lobbyCode);
 
   // Boards are clickable only while the game runs and it is our turn; the
   // hook re-checks every move anyway before emitting it.
@@ -19,12 +21,24 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
 
   return (
     <div className="flex flex-col items-center gap-10">
-      <StatusBar
-        state={state}
-        lobbyCode={lobbyCode}
-        phase={phase}
-        myMark={myMark}
-      />
+      <GameStatusBar
+        room={lobbyCode}
+        opponent={opponent}
+        opponentOnline={opponentOnline}
+        trailing={
+          <StatusCell label="SCORE">
+            <span className="glow-cyan">
+              {state.boardResults.filter((r) => r === "X").length}
+            </span>
+            <span className="text-arcade-muted mx-1">-</span>
+            <span className="glow-magenta">
+              {state.boardResults.filter((r) => r === "O").length}
+            </span>
+          </StatusCell>
+        }
+      >
+        <PhaseStatus state={state} phase={phase} myMark={myMark} />
+      </GameStatusBar>
 
       {notice !== null && (
         <p className="font-mono text-xs uppercase tracking-widest text-neon-yellow">
@@ -44,46 +58,6 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
               currentPlayer={state.currentPlayer}
             />
           ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusBar({
-  state,
-  lobbyCode,
-  phase,
-  myMark,
-}: {
-  state: SuperTttState;
-  lobbyCode: string;
-  phase: GamePhase;
-  myMark: Mark | null;
-}) {
-  return (
-    <div className="flex items-center gap-8 border border-arcade-border bg-arcade-panel px-8 py-4">
-      <div className="text-center">
-        <div className="font-mono text-xs text-arcade-muted mb-1">LOBBY</div>
-        <div className="font-arcade text-xs text-foreground/80">
-          {lobbyCode}
-        </div>
-      </div>
-
-      <div className="text-center font-mono text-xs px-4 border-x border-arcade-border">
-        <PhaseStatus state={state} phase={phase} myMark={myMark} />
-      </div>
-
-      <div className="text-center">
-        <div className="font-mono text-xs text-arcade-muted mb-1">SCORE</div>
-        <div className="font-arcade text-xs">
-          <span className="glow-cyan">
-            {state.boardResults.filter((r) => r === "X").length}
-          </span>
-          <span className="text-arcade-muted mx-1">-</span>
-          <span className="glow-magenta">
-            {state.boardResults.filter((r) => r === "O").length}
-          </span>
         </div>
       </div>
     </div>

@@ -27,6 +27,11 @@ export interface JoinedEvent {
   board: { rows: number; cols: number; mineCount: number };
 }
 
+/** Both seats taken — the race begins. Carries who is sitting where. */
+export interface GameStartEvent {
+  players: { player: PlayerIndex; login: string }[];
+}
+
 export interface BoardUpdateEvent {
   player: PlayerIndex;
   changes: CellChange[];
@@ -38,6 +43,12 @@ export type GameOverReason = "mine" | "cleared";
 export interface GameOverEvent {
   winner: PlayerIndex;
   reason: GameOverReason;
+}
+
+/** A seated player dropped mid-game (or came back); the race keeps running. */
+export interface PresenceEvent {
+  player: PlayerIndex;
+  connected: boolean;
 }
 
 export function makeHiddenBoard(rows: number, cols: number): Cell[][] {

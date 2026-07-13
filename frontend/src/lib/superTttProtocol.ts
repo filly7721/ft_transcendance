@@ -32,6 +32,11 @@ export interface JoinedEvent {
   board: GameSnapshot;
 }
 
+/** Both seats taken — the game begins. Carries who is sitting where. */
+export interface GameStartEvent {
+  players: { player: PlayerIndex; login: string }[];
+}
+
 /** One validated move, broadcast to both players. */
 export interface GameUpdateEvent {
   player: PlayerIndex;
@@ -46,6 +51,12 @@ export interface GameUpdateEvent {
 export interface GameOverEvent {
   winner: PlayerIndex | null;
   reason: "boards" | "draw";
+}
+
+/** A seated player dropped mid-game (or came back); the game keeps running. */
+export interface PresenceEvent {
+  player: PlayerIndex;
+  connected: boolean;
 }
 
 export function markOf(player: PlayerIndex): Mark {

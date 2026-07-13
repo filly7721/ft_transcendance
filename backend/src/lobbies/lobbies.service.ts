@@ -17,6 +17,7 @@ type LobbyWithRelations = Prisma.LobbyGetPayload<{
 /** Lobby statuses. Kept as plain strings (not a Prisma enum) so the schema
  *  stays wire-compatible with both SQLite and Postgres without extra setup. */
 const LOBBY_STATUS_WAITING = 'WAITING';
+const LOBBY_STATUS_IN_PROGRESS = 'IN_PROGRESS';
 
 /** Max room-code collision retries before giving up. 10 is absurdly safe: the
  *  code space is 10^9 and existing rows are tiny, so the chance of even one
@@ -65,6 +66,7 @@ export class LobbiesService {
     const optionsJson = JSON.stringify(dto.options ?? {});
 
     await this.prisma.$transaction(async (tx) => {
+      await this.leaveOtherLobbies(tx, hostId);
       await tx.lobby.create({
         data: {
           id,
@@ -106,14 +108,17 @@ export class LobbiesService {
     }
 
     const alreadyMember = lobby.members.some((m) => m.userId === userId);
-    if (!alreadyMember) {
-      if (lobby.members.length >= lobby.maxPlayers) {
-        throw new ConflictException('lobby is full');
-      }
-      await this.prisma.lobbyMember.create({
-        data: { lobbyId: roomCode, userId },
-      });
+    if (!alreadyMember && lobby.members.length >= lobby.maxPlayers) {
+      throw new ConflictException('lobby is full');
     }
+    await this.prisma.$transaction(async (tx) => {
+      await this.leaveOtherLobbies(tx, userId, roomCode);
+      if (!alreadyMember) {
+        await tx.lobbyMember.create({
+          data: { lobbyId: roomCode, userId },
+        });
+      }
+    });
 
     // Re-fetch to reflect the new member count.
     const updated = await this.prisma.lobby.findUniqueOrThrow({
@@ -123,7 +128,88 @@ export class LobbiesService {
     return this.serialize(updated);
   }
 
+  /**
+   * Does a lobby row exist for this code and game? The game gateways call
+   * this before opening a NEW in-memory room, so a made-up code (hand-typed
+   * URL, guessed code) can't fabricate a working game room. Already-live
+   * rooms are still served from memory, so mid-game resumes survive even
+   * if the row has since been cleaned up.
+   */
+  async existsForGame(roomCode: string, game: string): Promise<boolean> {
+    const row = await this.prisma.lobby.findUnique({
+      where: { id: roomCode },
+      select: { game: true },
+    });
+    return row?.game === game;
+  }
+
+  /**
+   * Mark a lobby as IN_PROGRESS — called by the game gateways when both
+   * players connect. Hides the lobby from `list()` (which only shows
+   * WAITING) so nobody joins a room whose game already started.
+   *
+   * Best-effort: the row may already be gone (e.g. auto-leave deleted it
+   * while its game kept running in memory), so a missing lobby is
+   * silently ignored.
+   */
+  async markInProgress(roomCode: string): Promise<void> {
+    try {
+      await this.prisma.lobby.update({
+        where: { id: roomCode },
+        data: { status: LOBBY_STATUS_IN_PROGRESS },
+      });
+    } catch {
+      // No such lobby row — nothing to mark.
+    }
+  }
+
+  /**
+   * Delete a lobby — called by the game gateways when the last player leaves
+   * the room, so finished/abandoned lobbies never linger in the browser.
+   * Members are removed by the LobbyMember onDelete cascade.
+   *
+   * Best-effort for the same reason as `markInProgress`.
+   */
+  async remove(roomCode: string): Promise<void> {
+    try {
+      await this.prisma.lobby.delete({ where: { id: roomCode } });
+    } catch {
+      // No such lobby row — nothing to delete.
+    }
+  }
+
   // ----- internals --------------------------------------------------------
+
+  /**
+   * Auto-leave: drop the user's memberships in every lobby except `except`.
+   * Creating or joining a lobby implicitly leaves the previous one, so an
+   * account is only ever a member of one lobby at a time — without a hard
+   * "already in a lobby" rejection that could lock accounts out behind
+   * abandoned rows. Lobbies left with no members at all are deleted, so
+   * rooms nobody ever connected to stop lingering in the browser forever.
+   *
+   * A live game is unaffected: the in-memory room keeps the leaver's seat
+   * reserved, and rejoining that room's code makes this a no-op for it.
+   */
+  private async leaveOtherLobbies(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    except?: string,
+  ): Promise<void> {
+    const memberships = await tx.lobbyMember.findMany({
+      where: { userId, ...(except ? { lobbyId: { not: except } } : {}) },
+      select: { lobbyId: true },
+    });
+    if (memberships.length === 0) return;
+
+    const lobbyIds = memberships.map((m) => m.lobbyId);
+    await tx.lobbyMember.deleteMany({
+      where: { userId, lobbyId: { in: lobbyIds } },
+    });
+    await tx.lobby.deleteMany({
+      where: { id: { in: lobbyIds }, members: { none: {} } },
+    });
+  }
 
   /** Generate room codes until one is free (or MAX_CODE_RETRIES is hit). */
   private async generateUniqueRoomCode(): Promise<string> {

@@ -12,9 +12,11 @@ import {
   markOf,
   snapshotToState,
   type GameOverEvent,
+  type GameStartEvent,
   type GameUpdateEvent,
   type JoinedEvent,
   type MoveAck,
+  type PresenceEvent,
 } from "./superTttProtocol";
 import { getToken } from "./auth-storage";
 
@@ -28,12 +30,18 @@ const ERROR_NOTICES: Record<string, string> = {
   lobby_full: "Lobby is full — try again later",
   rate_limited: "Too many connections from your network",
   timeout: "Game timed out from inactivity",
+  invalid_lobby: "Invalid room code — go back to the lobby",
+  superseded: "You opened this game somewhere else — playing there now",
 };
 
 export interface SuperTttGame {
   phase: GamePhase;
   /** Which mark the server assigned us, null until seated. */
   myMark: Mark | null;
+  /** Opponent's login, null until both players are seated. */
+  opponent: string | null;
+  /** False while the opponent is disconnected mid-game (they may come back). */
+  opponentOnline: boolean;
   state: SuperTttState;
   /** Final result reported by the server, null while playing. */
   result: GameOverEvent | null;
@@ -51,15 +59,23 @@ export interface SuperTttGame {
 export function useSuperTtt(lobbyCode: string): SuperTttGame {
   const [phase, setPhase] = useState<GamePhase>("connecting");
   const [myMark, setMyMark] = useState<Mark | null>(null);
+  const [opponent, setOpponent] = useState<string | null>(null);
+  const [opponentOnline, setOpponentOnline] = useState(true);
   const [state, setState] = useState<SuperTttState>(createInitialState);
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  // Our seat, readable inside socket handlers without a stale closure.
+  const seatRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // The room code rides in `auth`, not `query`: auth is per-socket, while
+    // query belongs to the manager socket.io-client caches per origin — a
+    // reused manager (SPA navigation, chat/social sockets on the same
+    // origin) would silently resend the FIRST connection's query and drop
+    // us into the wrong room.
     const socket = io(SOCKET_URL, {
-      auth: { token: getToken() },
-      query: { lobby: lobbyCode },
+      auth: { token: getToken(), lobby: lobbyCode },
       transports: ["websocket"],
     });
     socketRef.current = socket;
@@ -67,14 +83,23 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     // Sent on first join AND when the lobby resets because the opponent
     // left — either way it means "fresh board, wait for player 2".
     socket.on("game:joined", (event: JoinedEvent) => {
+      seatRef.current = event.player;
       setMyMark(markOf(event.player));
+      setOpponent(null);
+      setOpponentOnline(true);
       setState(snapshotToState(event.board));
       setResult(null);
       setPhase("waiting");
     });
-    socket.on("game:start", () => {
+    socket.on("game:start", (event: GameStartEvent) => {
+      const other = event.players?.find((p) => p.player !== seatRef.current);
+      setOpponent(other?.login ?? null);
       setPhase("playing");
       setNotice(null);
+    });
+    socket.on("game:presence", (event: PresenceEvent) => {
+      // Only the opponent's presence matters to this client.
+      if (event.player !== seatRef.current) setOpponentOnline(event.connected);
     });
     socket.on("game:update", (event: GameUpdateEvent) => {
       // The server already validated this move (ours or the opponent's), so
@@ -120,5 +145,5 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     [phase, myMark, state],
   );
 
-  return { phase, myMark, state, result, notice, sendMove };
+  return { phase, myMark, opponent, opponentOnline, state, result, notice, sendMove };
 }
