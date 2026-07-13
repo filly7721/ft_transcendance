@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
+import Icon from "@/components/ui/Icon";
+import Input from "@/components/ui/Input";
 import { ApiError } from "@/lib/api";
 import { gameRoomHref } from "@/lib/games";
 import { createLobby, fetchLobbies, joinLobby, type Lobby } from "@/lib/lobbies";
@@ -92,7 +94,14 @@ export default function LobbySelector({ game }: Props) {
     <section className="flex w-full max-w-md shrink-0 flex-col gap-4 border border-arcade-border bg-arcade-panel p-6">
       <div className="flex items-center justify-between">
         <h2 className="font-arcade text-xs text-arcade-muted">OPEN LOBBIES</h2>
-        {!creating && <Button onClick={() => setCreating(true)}>+ CREATE LOBBY</Button>}
+        {!creating && (
+          <Button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-2"
+          >
+            <Icon name="plus" /> CREATE LOBBY
+          </Button>
+        )}
       </div>
 
       {creating && <CreateLobbyForm onCreate={handleCreate} onCancel={() => setCreating(false)} />}
@@ -128,14 +137,17 @@ export default function LobbySelector({ game }: Props) {
       )}
 
       <form onSubmit={handleJoinByCode} className="flex gap-2 border-t border-arcade-border pt-4">
-        <input
+        <Input
           type="text"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="LOBBY CODE"
-          className="min-w-0 flex-1 border border-arcade-border bg-arcade-bg px-2 py-1.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-neon-cyan"
+          invalid={status?.error ?? false}
+          className="flex-1 py-1.5 text-xs"
         />
-        <Button type="submit" disabled={busy}>JOIN BY CODE</Button>
+        <Button type="submit" disabled={busy} className="flex items-center gap-2">
+          <Icon name="search" /> JOIN BY CODE
+        </Button>
       </form>
     </section>
   );

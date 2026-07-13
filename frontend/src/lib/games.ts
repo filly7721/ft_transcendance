@@ -1,6 +1,8 @@
 // Central registry of games. The sidebar, home page, and lobby pages all read
 // from here, so adding a game = one entry here (plus its demo in
 // components/games/) — the /lobby/<slug> page comes for free.
+import type { IconName } from "@/components/ui/Icon";
+
 export type GameAccent = "cyan" | "magenta";
 
 export type Game = {
@@ -9,7 +11,12 @@ export type Game = {
   description: string;
   tagline: string;
   hints: string[];
+  /** Emoji used in the large card art on the home page. */
   icon: string;
+  /** Name in the pixel icon set — used wherever the game appears at UI scale
+   *  (sidebar, lobby rows), where an emoji renders in the OS font and breaks
+   *  the pixel look. */
+  pixelIcon: IconName;
   difficulty: "EASY" | "MEDIUM" | "HARD";
   accent: GameAccent;
 };
@@ -26,6 +33,7 @@ export const games: Game[] = [
       "Numbers count the mines around them",
     ],
     icon: "💣",
+    pixelIcon: "bomb",
     difficulty: "MEDIUM",
     accent: "cyan",
   },
@@ -40,6 +48,7 @@ export const games: Game[] = [
       "Win 3 boards in a row to win the game",
     ],
     icon: "⊞",
+    pixelIcon: "grid",
     difficulty: "HARD",
     accent: "magenta",
   },
