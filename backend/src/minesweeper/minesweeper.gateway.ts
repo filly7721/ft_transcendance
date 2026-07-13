@@ -36,6 +36,13 @@ import { LobbiesService } from '../lobbies/lobbies.service';
  *                     because your opponent left — treat it as a full reset;
  *                     a mid-game reconnect follows it with game:update /
  *                     opponent:update snapshots replaying both boards)
+ *   'game:countdown'  { ms, players } — both seats are taken and the race
+ *                     starts in `ms`; moves are still rejected until it does.
+ *                     Sent as a duration, not a wall-clock deadline, so client
+ *                     clock skew can't shift it; a client rejoining mid-count
+ *                     gets the remainder. Carries the same `players` as
+ *                     game:start, so the opponent has a name on screen while
+ *                     the count runs.
  *   'game:start'      { players: [{ player, login }, ...] } — moves accepted
  *   'game:update'     changes to YOUR board
  *   'opponent:update' changes to the OPPONENT's board (side-by-side view)
@@ -68,7 +75,13 @@ interface Room {
   /** logins[i] is player i+1's public login, for opponent display. */
   logins: (string | null)[];
   engines: MinesweeperEngine[];
-  status: 'waiting' | 'playing' | 'over';
+  status: 'waiting' | 'countdown' | 'playing' | 'over';
+  /** Fires at the end of the pre-race countdown and flips 'countdown' ->
+   *  'playing'. Null outside the countdown. */
+  startTimer: NodeJS.Timeout | null;
+  /** When the countdown ends (epoch ms), so a client that rejoins midway
+   *  through it can be handed the remaining time. Null outside the countdown. */
+  countdownEndsAt: number | null;
   /** Runs while BOTH players are disconnected mid-game; destroys the room
    *  unless one of them makes it back within the grace window. */
   emptyTimer: NodeJS.Timeout | null;
@@ -76,6 +89,9 @@ interface Room {
 
 /** Room codes come from user-controlled input, so bound their shape. */
 const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
+/** Both players are in — hold the race for this long so nobody starts
+ *  clicking before the other has their eyes on the board. */
+const COUNTDOWN_MS = 3_000;
 /** How long a mid-game room survives with both players disconnected —
  *  long enough for a refresh (or both refreshing at once) to come back. */
 const EMPTY_GRACE_MS = 30_000;
@@ -162,6 +178,14 @@ export class MinesweeperGateway
       await client.join(code);
       this.clearEmptyTimer(room);
       client.emit('game:joined', this.joinedEvent(ownSeat));
+      if (room.status === 'countdown' && room.countdownEndsAt !== null) {
+        // Rejoined mid-countdown: hand them what is left of it. The
+        // 'game:start' at the end goes to the room, so this socket gets it.
+        client.emit('game:countdown', {
+          ms: Math.max(0, room.countdownEndsAt - Date.now()),
+          ...this.startEvent(room),
+        });
+      }
       if (room.status === 'playing') {
         // Replay both boards so the rejoining client resumes the race
         // exactly where it left off, then re-announce the running game.
@@ -230,9 +254,7 @@ export class MinesweeperGateway
     );
 
     if (room.seats.every((s) => s !== null)) {
-      room.status = 'playing';
-      this.server.to(code).emit('game:start', this.startEvent(room));
-      this.logger.log(`room ${code}: both players connected, game started`);
+      this.startCountdown(code, room);
       // Hide the lobby from the browser now that its game is running.
       void this.lobbies.markInProgress(code);
     }
@@ -274,6 +296,9 @@ export class MinesweeperGateway
     const survivorUserId = room.userIds[1 - seat];
     const survivorLogin = room.logins[1 - seat];
     this.clearEmptyTimer(room);
+    // Someone walked out during the countdown: cancel it, or it would start a
+    // race in a room that no longer has two players.
+    this.clearStartTimer(room);
 
     if (survivor === null) {
       // Last player out — the room dies with them, and so does its lobby row.
@@ -325,7 +350,9 @@ export class MinesweeperGateway
         reason:
           room.status === 'waiting'
             ? 'waiting for the second player'
-            : 'game is already over',
+            : room.status === 'countdown'
+              ? 'the race has not started yet'
+              : 'game is already over',
       };
     }
     const row = payload?.row;
@@ -407,8 +434,47 @@ export class MinesweeperGateway
       logins: [null, null],
       engines: this.freshEngines(),
       status: 'waiting',
+      startTimer: null,
+      countdownEndsAt: null,
       emptyTimer: null,
     };
+  }
+
+  /**
+   * Both seats are taken: announce the countdown, then start the race when it
+   * runs out. Moves stay rejected ('countdown' is not 'playing') until then,
+   * so neither player can open a cell before the other is looking.
+   */
+  private startCountdown(code: string, room: Room): void {
+    this.clearStartTimer(room);
+    room.status = 'countdown';
+    room.countdownEndsAt = Date.now() + COUNTDOWN_MS;
+    this.server
+      .to(code)
+      .emit('game:countdown', { ms: COUNTDOWN_MS, ...this.startEvent(room) });
+    this.logger.log(
+      `room ${code}: both players connected, race starts in ${COUNTDOWN_MS / 1000}s`,
+    );
+
+    room.startTimer = setTimeout(() => {
+      room.startTimer = null;
+      room.countdownEndsAt = null;
+      // The room may have been reset or dropped while we counted (a player
+      // left, so handleDisconnect cleared this timer) — only start the race
+      // if this room is still the live one and still waiting on us.
+      if (this.rooms.get(code) !== room || room.status !== 'countdown') return;
+      room.status = 'playing';
+      this.server.to(code).emit('game:start', this.startEvent(room));
+      this.logger.log(`room ${code}: race started`);
+    }, COUNTDOWN_MS);
+  }
+
+  private clearStartTimer(room: Room): void {
+    if (room.startTimer) {
+      clearTimeout(room.startTimer);
+      room.startTimer = null;
+    }
+    room.countdownEndsAt = null;
   }
 
   private startEmptyTimer(code: string, room: Room): void {
