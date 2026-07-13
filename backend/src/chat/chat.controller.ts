@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { ChatService } from './chat.service';
 import { SendMessageBodyDto } from './dto/send-message.dto';
@@ -31,6 +32,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
  */
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('jwt')
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
 

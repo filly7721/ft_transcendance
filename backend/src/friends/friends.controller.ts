@@ -6,6 +6,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { FriendsService } from './friends.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -26,6 +27,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
  */
 @Controller('friends')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('jwt')
 export class FriendsController {
   constructor(private readonly friends: FriendsService) {}
 

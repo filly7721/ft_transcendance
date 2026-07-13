@@ -6,6 +6,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -60,6 +61,7 @@ export class AuthController {
 
   @Delete('account')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('jwt')
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 5 deletions / min / IP
   deleteAccount(
     @CurrentUser() user: AuthenticatedUser,

@@ -10,6 +10,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { Throttle } from '@nestjs/throttler';
@@ -48,6 +49,7 @@ const EXT_BY_MIME: Record<string, string> = {
  */
 @Controller('users')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('jwt')
 export class ProfileController {
   constructor(private readonly profile: ProfileService) {}
 
