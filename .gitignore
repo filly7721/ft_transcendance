@@ -19,3 +19,5 @@ backend/uploads/
 # Local AI-tooling artifacts (never commit)
 .sandbox-bridge-manifest.json
 health-check.js
+
+extras/
