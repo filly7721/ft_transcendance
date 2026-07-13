@@ -98,6 +98,17 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Game stats */}
+      <div className="mb-8 border border-arcade-border bg-arcade-panel p-4">
+        <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">GAME STATS</h2>
+        <div className="flex justify-around">
+          <Stat label="GAMES" value={user?.stats?.gamesPlayed ?? 0} />
+          <Stat label="WINS" value={user?.stats?.wins ?? 0} color="text-neon-green" />
+          <Stat label="LOSSES" value={user?.stats?.losses ?? 0} color="text-neon-red" />
+          <Stat label="DRAWS" value={user?.stats?.draws ?? 0} color="text-arcade-muted" />
+        </div>
+      </div>
+
       {/* Login + Display name */}
       <form onSubmit={handleSaveProfile} className="mb-8 border border-arcade-border bg-arcade-panel p-4">
         <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">PROFILE</h2>
@@ -138,6 +149,15 @@ export default function SettingsPage() {
         <h2 className="mb-3 font-arcade text-[10px] text-neon-red">DANGER ZONE</h2>
         <Button onClick={handleDeleteAccount} className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]">DELETE ACCOUNT</Button>
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color = "text-foreground" }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="text-center">
+      <p className={`font-arcade text-lg ${color}`}>{value}</p>
+      <p className="font-mono text-[10px] text-arcade-muted">{label}</p>
     </div>
   );
 }

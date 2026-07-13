@@ -2,6 +2,13 @@
 // (backend/src/auth/dto, backend/src/users/users.service.ts SafeUser).
 import { apiFetch } from "./api";
 
+export type GameStats = {
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  draws: number;
+};
+
 export type User = {
   id: string;
   email: string;
@@ -10,6 +17,7 @@ export type User = {
   avatarUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  stats: GameStats;
 };
 
 export type AuthResponse = {

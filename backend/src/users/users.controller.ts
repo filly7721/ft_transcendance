@@ -5,29 +5,73 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 
+/** Game stats shape returned with the user profile. */
+export interface GameStats {
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
+/** Shape returned by GET /users/me — SafeUser + stats. */
+export interface MeResponse {
+  id: string;
+  email: string;
+  login: string;
+  displayName: string;
+  avatarUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  stats: GameStats;
+}
+
 /**
- * Minimal user endpoints. Only `/users/me` for now: it proves the JWT guard
- * works and gives the frontend the current user's profile after login.
+ * User endpoints.
+ *
+ * `GET /users/me` returns the authenticated user's profile + game stats
+ * (aggregated from the GameResult table via Prisma groupBy).
  */
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async me(@CurrentUser() user: AuthenticatedUser) {
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<MeResponse> {
     const profile = await this.users.findById(user.id);
-    // The JWT is stateless, so a token issued before the account was deleted
-    // is still signature-valid. If the user no longer exists, reject the
-    // request here so deleted accounts cannot keep using the API.
     if (!profile) {
       throw new UnauthorizedException('account no longer exists');
     }
-    // `findById` uses `publicUserSelect`, so `passwordHash` is already absent.
-    return profile;
+
+    // Aggregate game results for stats.
+    const results = await this.prisma.gameResult.groupBy({
+      by: ['result'],
+      where: { userId: user.id },
+      _count: { result: true },
+    });
+
+    const stats: GameStats = {
+      gamesPlayed: 0,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+    };
+    for (const r of results) {
+      const count = r._count.result;
+      if (r.result === 'win') stats.wins = count;
+      else if (r.result === 'loss') stats.losses = count;
+      else if (r.result === 'draw') stats.draws = count;
+      stats.gamesPlayed += count;
+    }
+
+    return { ...profile, stats };
   }
 }
