@@ -29,7 +29,6 @@ const ERROR_NOTICES: Record<string, string> = {
   unauthorized: "You need to log in to play online",
   lobby_full: "Lobby is full — try again later",
   rate_limited: "Too many connections from your network",
-  timeout: "Game timed out from inactivity",
   invalid_lobby: "Invalid room code — go back to the lobby",
   superseded: "You opened this game somewhere else — playing there now",
 };

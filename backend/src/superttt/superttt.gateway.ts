@@ -25,16 +25,22 @@ import { LobbiesService } from '../lobbies/lobbies.service';
  *
  * Game sessions are scoped to lobby rooms: the client passes its room code in
  * `handshake.query.lobby` (the "xxx-xxx-xxx" code from POST /lobbies), and
- * every room gets its own seats, engine and timers. Rooms are created lazily
- * on first connect and destroyed when the last player leaves.
+ * every room gets its own seats and engine. Rooms are created lazily on first
+ * connect and destroyed when the last player leaves.
+ *
+ * There are no gameplay timeouts: a player may wait in a lobby, or think over
+ * a move, indefinitely. The only timer is the empty-room grace window, which
+ * runs solely when NOBODY is connected — without it, abandoned in-memory rooms
+ * and their lobby rows would leak forever.
  *
  * Security fixes applied (see backend/SECURITY_AUDIT.md):
  *   C1: JWT auth on connection — token verified from handshake.auth.token
  *       or handshake.query.token; connection rejected if invalid.
  *   C2: Per-IP connection cap (5) via WsRateLimiter.
- *   C3: Idle timeouts — 120s ready timeout during 'waiting', 60s
- *       inactivity timeout during 'playing'. On timeout: emit game:error,
- *       disconnect both players, drop the room.
+ *   C3: Idle timeouts — REMOVED. They disconnected players who were still
+ *       there (thinking, or waiting for a friend to join), which is a worse
+ *       failure than an idle socket. Abandoned rooms are still collected, by
+ *       the empty-room grace timer above.
  *   M1: maxHttpBufferSize: 1e4 (10KB) — rejects oversized payloads.
  *   M2: transports: ['websocket'] — no polling attack surface.
  *
@@ -49,7 +55,7 @@ import { LobbiesService } from '../lobbies/lobbies.service';
  *                   (or came back); the game itself keeps running.
  *   'game:over'     { winner, reason: 'boards' | 'draw' }
  *   'game:error'    { reason } — 'unauthorized' | 'rate_limited' | 'invalid_lobby'
- *                   | 'lobby_full' | 'timeout' | 'superseded' | ...
+ *                   | 'lobby_full' | 'superseded'
  *
  * Connect from the frontend with:
  *   io('http://localhost:3001/super-tic-tac-toe', {
@@ -87,20 +93,19 @@ interface Room {
   logins: (string | null)[];
   engine: SuperTttEngine;
   status: 'waiting' | 'playing' | 'over';
-  /** C3: ready timer (during 'waiting') + inactivity timer (during 'playing'). */
-  readyTimer: NodeJS.Timeout | null;
-  inactivityTimer: NodeJS.Timeout | null;
   /** Runs while BOTH players are disconnected mid-game; destroys the room
-   *  unless one of them makes it back within the grace window. */
+   *  unless one of them makes it back within the grace window. This is the
+   *  only timer left: a room with nobody in it must eventually be collected,
+   *  or in-memory rooms and their lobby rows leak forever. */
   emptyTimer: NodeJS.Timeout | null;
 }
 
-/** Ready timeout: if player 2 doesn't arrive in 120s, disconnect player 1. */
-const READY_TIMEOUT_MS = 120_000;
-/** Inactivity timeout: if no move in 60s during playing, disconnect both. */
-const INACTIVITY_TIMEOUT_MS = 60_000;
 /** How long a mid-game room survives with both players disconnected —
- *  long enough for a refresh (or both refreshing at once) to come back. */
+ *  long enough for a refresh (or both refreshing at once) to come back.
+ *
+ *  Note this is NOT a gameplay clock: it only runs when no one is connected.
+ *  A game with a player present never expires — players are free to sit in a
+ *  lobby, or think over a move, for as long as they like. */
 const EMPTY_GRACE_MS = 30_000;
 /** Room codes come from user-controlled input, so bound their shape. */
 const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
@@ -249,16 +254,13 @@ export class SuperTttGateway
     if (room.seats.every((s) => s !== null)) {
       // Both players present — start the game.
       room.status = 'playing';
-      this.clearReadyTimer(room);
-      this.startInactivityTimer(code, room);
       this.server.to(code).emit('game:start', this.startEvent(room));
       this.logger.log(`room ${code}: both players connected, game started`);
       // Hide the lobby from the browser now that its game is running.
       void this.lobbies.markInProgress(code);
-    } else {
-      // C3: first player — start the ready timeout.
-      this.startReadyTimer(code, room);
     }
+    // Otherwise: player 1 waits, for as long as they care to. Nothing times
+    // them out — the room dies when they leave (see handleDisconnect).
   }
 
   handleDisconnect(client: Socket): void {
@@ -297,8 +299,6 @@ export class SuperTttGateway
 
     const survivorUserId = room.userIds[1 - seat];
     const survivorLogin = room.logins[1 - seat];
-    this.clearReadyTimer(room);
-    this.clearInactivityTimer(room);
     this.clearEmptyTimer(room);
 
     if (survivor === null) {
@@ -318,7 +318,6 @@ export class SuperTttGateway
     room.engine = new SuperTttEngine();
     room.status = 'waiting';
     this.server.to(survivor).emit('game:joined', this.joinedEvent(room, 0));
-    this.startReadyTimer(code, room);
     this.logger.log(`client ${client.id} left, room ${code} reset for survivor`);
   }
 
@@ -349,9 +348,6 @@ export class SuperTttGateway
       return result;
     }
 
-    // C3: reset the inactivity timer on every valid move.
-    this.startInactivityTimer(code, room);
-
     const update: GameUpdateEvent = {
       player: result.player,
       mark: result.mark,
@@ -365,7 +361,6 @@ export class SuperTttGateway
 
     if (result.outcome !== 'continue') {
       room.status = 'over';
-      this.clearInactivityTimer(room);
       const overEvent: GameOverEvent =
         result.outcome === 'win'
           ? { winner: result.player, reason: 'boards' }
@@ -418,49 +413,11 @@ export class SuperTttGateway
       logins: [null, null],
       engine: new SuperTttEngine(),
       status: 'waiting',
-      readyTimer: null,
-      inactivityTimer: null,
       emptyTimer: null,
     };
   }
 
-  // ----- C3: timer management ------------------------------------------------
-
-  private startReadyTimer(code: string, room: Room): void {
-    this.clearReadyTimer(room);
-    room.readyTimer = setTimeout(() => {
-      this.logger.warn(
-        `room ${code}: ready timeout (120s) — no second player, disconnecting`,
-      );
-      this.server.to(code).emit('game:error', { reason: 'timeout' });
-      this.destroyRoom(code, room);
-    }, READY_TIMEOUT_MS);
-  }
-
-  private clearReadyTimer(room: Room): void {
-    if (room.readyTimer) {
-      clearTimeout(room.readyTimer);
-      room.readyTimer = null;
-    }
-  }
-
-  private startInactivityTimer(code: string, room: Room): void {
-    this.clearInactivityTimer(room);
-    room.inactivityTimer = setTimeout(() => {
-      this.logger.warn(
-        `room ${code}: inactivity timeout (60s) — no moves, disconnecting`,
-      );
-      this.server.to(code).emit('game:error', { reason: 'timeout' });
-      this.destroyRoom(code, room);
-    }, INACTIVITY_TIMEOUT_MS);
-  }
-
-  private clearInactivityTimer(room: Room): void {
-    if (room.inactivityTimer) {
-      clearTimeout(room.inactivityTimer);
-      room.inactivityTimer = null;
-    }
-  }
+  // ----- timer management ----------------------------------------------------
 
   private startEmptyTimer(code: string, room: Room): void {
     this.clearEmptyTimer(room);
@@ -479,10 +436,9 @@ export class SuperTttGateway
     }
   }
 
-  /** Disconnect every seated client and drop the room (used by timeouts). */
+  /** Disconnect every seated client and drop the room (used by the empty-room
+   *  grace timer, i.e. only when nobody is connected any more). */
   private destroyRoom(code: string, room: Room): void {
-    this.clearReadyTimer(room);
-    this.clearInactivityTimer(room);
     this.clearEmptyTimer(room);
     this.rooms.delete(code);
     void this.lobbies.remove(code);
