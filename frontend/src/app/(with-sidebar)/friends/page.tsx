@@ -159,12 +159,20 @@ export default function FriendsPage() {
         {friendsWithOnline === null ? (<p className="py-4 text-center font-mono text-xs text-arcade-muted animate-blink">LOADING...</p>) : friendsWithOnline.length === 0 ? (<p className="py-4 text-center font-mono text-xs text-arcade-muted">NO FRIENDS YET</p>) : (
           <ul className="flex flex-col gap-2">
             {friendsWithOnline.map((f) => (
-              <li key={f.id} className="flex items-center gap-3 border border-arcade-border bg-arcade-card p-2">
-                <FriendAvatar login={f.login} avatarUrl={f.avatarUrl} online={f.online} size="sm" />
-                <div className="min-w-0 flex-1"><p className="truncate font-mono text-xs">{f.login}</p><p className="truncate font-mono text-[10px] text-arcade-muted">{f.displayName}</p></div>
-                <a href={`/profile/${f.login}`} className="font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</a>
-                <a href={`/chat?peer=${f.login}`} className="font-mono text-[10px] text-neon-green hover:underline">MESSAGE</a>
-                <Button onClick={() => handleUnfriend(f.login)}>UNFRIEND</Button>
+              <li key={f.id} className="flex flex-col gap-2 border border-arcade-border bg-arcade-card p-2">
+                <div className="flex items-center gap-3">
+                  <FriendAvatar login={f.login} avatarUrl={f.avatarUrl} online={f.online} size="sm" />
+                  <div className="min-w-0 flex-1"><p className="truncate font-mono text-xs">{f.login}</p><p className="truncate font-mono text-[10px] text-arcade-muted">{f.displayName}</p></div>
+                  <a href={`/profile/${f.login}`} className="font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</a>
+                  <a href={`/chat?peer=${f.login}`} className="font-mono text-[10px] text-neon-green hover:underline">MESSAGE</a>
+                  <Button onClick={() => handleUnfriend(f.login)}>UNFRIEND</Button>
+                </div>
+                <div className="flex justify-around border-t border-arcade-border/50 pt-1">
+                  <span className="font-mono text-[9px] text-arcade-muted">{f.stats?.gamesPlayed ?? 0} GAMES</span>
+                  <span className="font-mono text-[9px] text-neon-green">{f.stats?.wins ?? 0}W</span>
+                  <span className="font-mono text-[9px] text-neon-red">{f.stats?.losses ?? 0}L</span>
+                  <span className="font-mono text-[9px] text-arcade-muted">{f.stats?.draws ?? 0}D</span>
+                </div>
               </li>
             ))}
           </ul>

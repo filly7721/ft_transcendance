@@ -1,6 +1,13 @@
 // Friends API calls. Mirrors the backend's FriendsController endpoints.
 import { apiFetch } from "./api";
 
+export type GameStats = {
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  draws: number;
+};
+
 export type Friend = {
   id: string;
   login: string;
@@ -9,6 +16,7 @@ export type Friend = {
   online: boolean;
   friendshipId: number;
   friendsSince: string;
+  stats: GameStats;
 };
 
 export type FriendRequest = {

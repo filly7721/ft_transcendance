@@ -15,7 +15,15 @@ const STATUS_PENDING = 'PENDING';
 const STATUS_ACCEPTED = 'ACCEPTED';
 const STATUS_BLOCKED = 'BLOCKED';
 
-/** A friend in the user's friends list, with real-time online status. */
+/** Game stats shape. */
+export interface GameStats {
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
+/** A friend in the user's friends list, with real-time online status + stats. */
 export interface FriendResponse {
   id: string;
   login: string;
@@ -26,6 +34,8 @@ export interface FriendResponse {
   friendshipId: number;
   /** When the friendship was accepted. */
   friendsSince: Date;
+  /** Game stats (wins/losses/draws aggregated from GameResult). */
+  stats: GameStats;
 }
 
 /** A pending friend request (incoming or outgoing). */
@@ -177,6 +187,21 @@ export class FriendsService {
       where: { id: userId },
       select: { id: true, login: true, displayName: true, avatarUrl: true },
     });
+
+    const statsRows = await this.prisma.gameResult.groupBy({
+      by: ['result'],
+      where: { userId: acceptor.id },
+      _count: { result: true },
+    });
+    const stats: GameStats = { gamesPlayed: 0, wins: 0, losses: 0, draws: 0 };
+    for (const r of statsRows) {
+      const count = r._count.result;
+      if (r.result === 'win') stats.wins = count;
+      else if (r.result === 'loss') stats.losses = count;
+      else if (r.result === 'draw') stats.draws = count;
+      stats.gamesPlayed += count;
+    }
+
     void this.social.notifyFriendAccept(friendship.requesterId, {
       id: acceptor.id,
       login: acceptor.login,
@@ -185,6 +210,7 @@ export class FriendsService {
       online: this.presence.isOnline(userId),
       friendshipId: friendship.id,
       friendsSince: updated.updatedAt,
+      stats,
     });
 
     return { message: 'friend request accepted' };
@@ -281,6 +307,37 @@ export class FriendsService {
       orderBy: { updatedAt: 'desc' },
     });
 
+    // Extract friend IDs for the batch stats query.
+    const friendIds = friendships.map((f) => {
+      const friend = f.requester.id === userId ? f.addressee : f.requester;
+      return friend.id;
+    });
+
+    // Batch-fetch game stats for all friends in one groupBy query.
+    // Grouping by userId + result gives us counts per user per result type.
+    const statsRows = friendIds.length > 0
+      ? await this.prisma.gameResult.groupBy({
+          by: ['userId', 'result'],
+          where: { userId: { in: friendIds } },
+          _count: { result: true },
+        })
+      : [];
+
+    // Build a Map<userId, GameStats> from the grouped rows.
+    const statsMap = new Map<string, GameStats>();
+    for (const row of statsRows) {
+      let stats = statsMap.get(row.userId);
+      if (!stats) {
+        stats = { gamesPlayed: 0, wins: 0, losses: 0, draws: 0 };
+        statsMap.set(row.userId, stats);
+      }
+      const count = row._count.result;
+      if (row.result === 'win') stats.wins = count;
+      else if (row.result === 'loss') stats.losses = count;
+      else if (row.result === 'draw') stats.draws = count;
+      stats.gamesPlayed += count;
+    }
+
     return friendships.map((f) => {
       const friend = f.requester.id === userId ? f.addressee : f.requester;
       return {
@@ -291,6 +348,7 @@ export class FriendsService {
         online: this.presence.isOnline(friend.id),
         friendshipId: f.id,
         friendsSince: f.updatedAt,
+        stats: statsMap.get(friend.id) ?? { gamesPlayed: 0, wins: 0, losses: 0, draws: 0 },
       };
     });
   }
