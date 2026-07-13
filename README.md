@@ -113,8 +113,8 @@ curl -s -X DELETE http://localhost:3001/api/keys/<key-id> -H "Authorization: Bea
 ### Design system
 
 The living style reference — palette, typography, the full icon set and every
-shared component, all rendered from the real source — is at **`/design`**
-(sidebar → ACCOUNT → DESIGN) once you are logged in.
+shared component, all rendered from the real source — is at
+**`http://localhost:3000/design`** once you are logged in.
 
 ### Docker (planned)
 
