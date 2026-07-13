@@ -33,6 +33,12 @@ const ERROR_NOTICES: Record<string, string> = {
   superseded: "You opened this game somewhere else — playing there now",
 };
 
+/** Where the most recent move landed, so the board can point it out. */
+export interface LastMove {
+  boardIdx: number;
+  cellIdx: number;
+}
+
 export interface SuperTttGame {
   phase: GamePhase;
   /** Which mark the server assigned us, null until seated. */
@@ -42,6 +48,10 @@ export interface SuperTttGame {
   /** False while the opponent is disconnected mid-game (they may come back). */
   opponentOnline: boolean;
   state: SuperTttState;
+  /** The move just played (either player's), null on a fresh board. A rejoin
+   *  starts from a snapshot, which carries no move history — so it is null
+   *  there too, until the next move. */
+  lastMove: LastMove | null;
   /** Final result reported by the server, null while playing. */
   result: GameOverEvent | null;
   /** Last rejection or connection problem, for display. */
@@ -61,6 +71,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
   const [opponent, setOpponent] = useState<string | null>(null);
   const [opponentOnline, setOpponentOnline] = useState(true);
   const [state, setState] = useState<SuperTttState>(createInitialState);
+  const [lastMove, setLastMove] = useState<LastMove | null>(null);
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -87,6 +98,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
       setOpponent(null);
       setOpponentOnline(true);
       setState(snapshotToState(event.board));
+      setLastMove(null);
       setResult(null);
       setPhase("waiting");
     });
@@ -104,6 +116,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
       // The server already validated this move (ours or the opponent's), so
       // apply it without turn checks — the local engine mirrors the server's.
       setState((current) => applyMove(current, event.boardIdx, event.cellIdx));
+      setLastMove({ boardIdx: event.boardIdx, cellIdx: event.cellIdx });
       setNotice(null);
     });
     socket.on("game:over", (event: GameOverEvent) => {
@@ -144,5 +157,15 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     [phase, myMark, state],
   );
 
-  return { phase, myMark, opponent, opponentOnline, state, result, notice, sendMove };
+  return {
+    phase,
+    myMark,
+    opponent,
+    opponentOnline,
+    state,
+    lastMove,
+    result,
+    notice,
+    sendMove,
+  };
 }
