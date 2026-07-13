@@ -13,6 +13,7 @@ import { Namespace, Socket } from 'socket.io';
 import { MinesweeperEngine } from './engine/minesweeper.engine';
 import { DEFAULT_MAP } from './engine/maps';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import { FRONTEND_ORIGIN } from '../config/frontend-origin';
 import { LobbiesService } from '../lobbies/lobbies.service';
 
 /**
@@ -99,7 +100,7 @@ const EMPTY_GRACE_MS = 30_000;
 @WebSocketGateway({
   namespace: 'minesweeper',
   cors: {
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    origin: FRONTEND_ORIGIN,
     credentials: true,
   },
   maxHttpBufferSize: 1e4, // 10KB — more than enough for { row, col }
