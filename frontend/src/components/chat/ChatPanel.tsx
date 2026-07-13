@@ -69,6 +69,13 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   const [typing, setTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<ReturnType<typeof createChatSocket> | null>(null);
+
+  // Gracefully disconnect/reconnect the chat socket on bfcache freeze/restore
+  // (prevents "WebSocket failed: Page entered Back-Forward Cache" warnings).
+  useBfcache(socketRef, () => {
+    const socket = createChatSocket();
+    socketRef.current = socket;
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // The socket connects once; handlers read the current conversation from
   // this ref so switching conversations doesn't tear the connection down
@@ -147,8 +154,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     });
 
     return () => {
-      // Defer disconnect to prevent browser warnings in React Strict Mode
-      setTimeout(() => socket.disconnect(), 1000);
+      socket.disconnect();
       socketRef.current = null;
     };
   }, [upsertConversation]);
