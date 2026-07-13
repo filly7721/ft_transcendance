@@ -32,6 +32,11 @@ export interface JoinedEvent {
   board: GameSnapshot;
 }
 
+/** Both seats taken — the game begins. Carries who is sitting where. */
+export interface GameStartEvent {
+  players: { player: PlayerIndex; login: string }[];
+}
+
 /** One validated move, broadcast to both players. */
 export interface GameUpdateEvent {
   player: PlayerIndex;
