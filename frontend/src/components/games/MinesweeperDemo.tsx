@@ -1,15 +1,15 @@
-type Cell = 0 | 1 | 2 | 3 | 4 | 5 | 'h' | 'f' | 'm';
+type Cell = 0 | 1 | 2 | 3 | 4 | 5 |  6 |  7 |  8 | 'h' | 'f' | 'm';
 
 const board: Cell[][] = [
   ['h', 'h', 'h', 'h', 'h', 'h', 'h', 'h', 'h'],
   ['h', 'h', 'h', 'h', 'h', 'h', 'h', 'h', 'h'],
   ['h', 'h', 'h', 'h', 'h',  1,  'h', 'h', 'h'],
   ['h', 'h', 'h', 'f',  3,   1,   1,  'h', 'h'],
-  ['h',  2,   1,   2,   0,   0,   0,   1,  'h'],
-  [ 1,   0,   0,   0,   0,   0,   0,   0,   1 ],
-  [ 0,   0,   0,   1,   1,   1,   0,   0,   0 ],
-  [ 0,   1,   2,  'f',  2,   1,   0,   0,   0 ],
-  [ 0,   0,   0,   1,   0,   0,   0,   0,   0 ],
+  ['h',  2,   1,   1,   0,   0,   1,   2,  'h'],
+  [ 1,   0,   0,   0,   0,   0,   0,   1,   1 ],
+  [ 0,   0,   1,   1,   1,   0,   0,   0,   0 ],
+  [ 0,   0,   2,  'f',  2,   0,   0,   0,   0 ],
+  [ 0,   0,   2,  'h',  2,   0,   0,   0,   0 ],
 ];
 
 const numberGlow: Record<number, string> = {
@@ -18,6 +18,9 @@ const numberGlow: Record<number, string> = {
   3: 'glow-magenta',
   4: 'glow-yellow',
   5: 'glow-orange',
+  6: 'glow-red',
+  7: 'glow-purple',
+  8: 'glow-grey',
 };
 
 function CellDisplay({ cell }: { cell: Cell }) {

@@ -12,6 +12,9 @@ const numberGlow: Record<number, string> = {
   3: 'glow-magenta',
   4: 'glow-yellow',
   5: 'glow-orange',
+  6: 'glow-red',
+  7: 'glow-purple',
+  8: 'glow-grey',
 };
 
 function CellDisplay({ cell }: { cell: Cell }) {

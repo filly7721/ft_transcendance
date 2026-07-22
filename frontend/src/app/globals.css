@@ -69,6 +69,14 @@
   color: #ff2244;
   text-shadow: 0 0 8px #ff2244, 0 0 24px #ff224480;
 }
+@utility glow-purple {
+  color: #6038ff;
+  text-shadow: 0 0 8px #6038ff, 0 0 24px #b31a80;
+}
+@utility glow-grey {
+  color: #cdbfcc;
+  text-shadow: 0 0 8px #cdbfcc, 0 0 24px #cdbfcc80;
+}
 
 /* Neon box glow utilities */
 @utility box-glow-cyan {
