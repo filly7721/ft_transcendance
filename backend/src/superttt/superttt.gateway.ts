@@ -19,6 +19,7 @@ import {
 } from './engine/superttt.engine';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
 import { LobbiesService } from '../lobbies/lobbies.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Super Tic-Tac-Toe WebSocket gateway.
@@ -129,6 +130,7 @@ export class SuperTttGateway
     private readonly jwt: JwtService,
     private readonly rateLimiter: WsRateLimiter,
     private readonly lobbies: LobbiesService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -323,10 +325,10 @@ export class SuperTttGateway
   }
 
   @SubscribeMessage('game:move')
-  handleMove(
+  async handleMove(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<MovePayload> | undefined,
-  ): MoveAck {
+  ): Promise<MoveAck> {
     const found = this.roomOf(client);
     if (!found) {
       return { ok: false, reason: 'you are not in the game' };
@@ -376,6 +378,36 @@ export class SuperTttGateway
           overEvent.winner ? `player ${overEvent.winner} wins` : 'draw'
         } (${overEvent.reason})`,
       );
+
+      // Record game results for stats (win/loss/draw for both players).
+      const p1Id = room.userIds[0];
+      const p2Id = room.userIds[1];
+      if (p1Id && p2Id) {
+        if (overEvent.winner === null) {
+          // Draw: both get 'draw'
+          await this.prisma.gameResult.createMany({
+            data: [
+              { userId: p1Id, game: 'super-tic-tac-toe', result: 'draw' },
+              { userId: p2Id, game: 'super-tic-tac-toe', result: 'draw' },
+            ],
+          });
+        } else {
+          // Win/loss
+          const winnerIdx = overEvent.winner - 1; // 0-indexed
+          const loserIdx = 1 - winnerIdx;
+          const winnerId = room.userIds[winnerIdx];
+          const loserId = room.userIds[loserIdx];
+          if (winnerId && loserId) {
+            await this.prisma.gameResult.createMany({
+              data: [
+                { userId: winnerId, game: 'super-tic-tac-toe', result: 'win' },
+                { userId: loserId, game: 'super-tic-tac-toe', result: 'loss' },
+              ],
+            });
+          }
+        }
+        this.logger.log(`stats recorded for room ${code}`);
+      }
     }
     return { ok: true };
   }
