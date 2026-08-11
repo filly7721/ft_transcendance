@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { io } from "socket.io-client";
+import { io, type Socket } from "socket.io-client";
 import { getToken } from "@/lib/auth-storage";
 import { fetchFriendRequests } from "@/lib/friends";
 import { apiFetch } from "@/lib/api";

@@ -12,6 +12,7 @@ import {
 } from "@/lib/chat";
 import { getToken } from "@/lib/auth-storage";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useBfcache } from "@/lib/useBfcache";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
