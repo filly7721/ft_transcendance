@@ -16,6 +16,7 @@ import {
   type FriendResponse,
 } from '../friends/friends.service';
 import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import { FRONTEND_ORIGIN } from '../config/frontend-origin';
 
 /**
  * Social WebSocket gateway — handles real-time social notifications:
@@ -48,7 +49,7 @@ type MoveAck = { ok: true } | { ok: false; reason: string };
 @WebSocketGateway({
   namespace: 'social',
   cors: {
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    origin: FRONTEND_ORIGIN,
     credentials: true,
   },
   maxHttpBufferSize: 1e4,

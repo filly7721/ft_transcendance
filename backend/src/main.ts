@@ -7,6 +7,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 import { API_KEY_HEADER } from './api-keys/guards/api-key.guard';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { FRONTEND_ORIGIN } from './config/frontend-origin';
 
 /**
  * Mount the OpenAPI docs at `/api/docs` (JSON at `/api/docs-json`).
@@ -50,7 +51,9 @@ function setupSwagger(app: INestApplication): void {
  * Global middleware/pipes applied here:
  *  - helmet:        secure HTTP headers (CSP configured to allow avatar images).
  *  - cookieParser:  required if/when we add httpOnly refresh-token cookies.
- *  - CORS:          restricted to the frontend origin (CORS_ORIGIN env var).
+ *  - CORS:          restricted to the frontend origin (FRONTEND_URL env var,
+ *                   read once in config/frontend-origin and shared with the
+ *                   websocket gateways, which need the same origin).
  *  - ValidationPipe: validate every incoming DTO, strip unknown properties
  *                   and reject them, and transform payloads to their typed
  *                   shapes.
@@ -106,7 +109,7 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
 
   app.enableCors({
-    origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+    origin: FRONTEND_ORIGIN,
     credentials: true,
   });
 
