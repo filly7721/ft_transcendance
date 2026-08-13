@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Button from "@/components/Button";
+import ApiKeyPanel from "@/components/settings/ApiKeyPanel";
 import { Avatar } from "@/components/profile/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { updateProfile, uploadAvatar } from "@/lib/profile";
@@ -19,11 +20,14 @@ export default function SettingsPage() {
   // On a hard refresh the user loads asynchronously, so the useState
   // initializers above ran with user = null and the fields stayed empty.
   // Re-sync whenever the loaded user changes (also refills after a save).
-  useEffect(() => {
-    if (!user) return;
+  // Done while rendering rather than in an effect, so the inputs are never
+  // painted blank for a frame before being filled in.
+  const [syncedUser, setSyncedUser] = useState(user);
+  if (user && user !== syncedUser) {
+    setSyncedUser(user);
     setLogin(user.login);
     setDisplayName(user.displayName);
-  }, [user]);
+  }
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -143,6 +147,9 @@ export default function SettingsPage() {
         <p className="font-mono text-[10px] text-arcade-muted">PNG, JPEG, or WebP. Max 2MB.</p>
         {uploading && <p className="mt-2 font-mono text-xs text-neon-cyan animate-blink">UPLOADING...</p>}
       </div>
+
+      {/* Public-API key — self-contained, owns its own loading and errors. */}
+      <ApiKeyPanel />
 
       {/* Danger zone */}
       <div className="border border-neon-red/30 bg-arcade-panel p-4">

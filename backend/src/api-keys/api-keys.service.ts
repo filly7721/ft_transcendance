@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -57,18 +61,57 @@ export class ApiKeysService {
   /**
    * Mint a new key for a user. Returns the raw key — the only time it exists
    * outside the caller's hands, since we store just its hash.
+   *
+   * A user may hold exactly ONE active key. Minting is therefore refused
+   * (409) while a live key exists rather than silently retiring it: the old
+   * key may be in a running script, and taking it out from under the caller
+   * as a side effect of pressing a button is not something they asked for.
+   * Revoke first, then mint — both steps are explicit.
    */
   async create(userId: string, name: string): Promise<CreatedApiKeyResponse> {
     const raw = KEY_PREFIX + randomBytes(KEY_BYTES).toString('hex');
-    const created = await this.prisma.apiKey.create({
-      data: {
-        userId,
-        name,
-        keyHash: this.hash(raw),
-        prefix: raw.slice(0, DISPLAY_PREFIX_LEN),
-      },
+
+    // Check-then-insert is a read-modify-write, so it runs in a transaction.
+    // SQLite serializes writers, which makes this atomic today. The portable
+    // guarantee is a partial unique index — `(userId) WHERE revokedAt IS NULL`
+    // — which Prisma cannot express in schema.prisma; add it by hand in the
+    // migration if this ever moves to Postgres.
+    const created = await this.prisma.$transaction(async (tx) => {
+      const live = await tx.apiKey.findFirst({
+        where: { userId, revokedAt: null },
+        select: { id: true },
+      });
+      if (live) {
+        throw new ConflictException(
+          'you already have an active API key — revoke it before creating another',
+        );
+      }
+      return tx.apiKey.create({
+        data: {
+          userId,
+          name,
+          keyHash: this.hash(raw),
+          prefix: raw.slice(0, DISPLAY_PREFIX_LEN),
+        },
+      });
     });
+
     return { ...this.serialize(created), key: raw };
+  }
+
+  /**
+   * The caller's one active key, or null if they have none.
+   *
+   * This is all the settings screen needs: at most one can exist, because
+   * `create` refuses to mint a second. Revoked keys stay in the table as an
+   * audit trail of what was issued, but they are not the current key and are
+   * excluded here.
+   */
+  async active(userId: string): Promise<ApiKeyResponse | null> {
+    const key = await this.prisma.apiKey.findFirst({
+      where: { userId, revokedAt: null },
+    });
+    return key ? this.serialize(key) : null;
   }
 
   /** List a user's keys, newest first. Secrets are never included. */

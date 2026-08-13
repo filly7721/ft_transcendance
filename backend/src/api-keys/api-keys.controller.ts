@@ -40,9 +40,29 @@ export class ApiKeysController {
       'Returns the raw key ONCE — it is stored only as a hash and cannot be ' +
       'retrieved again. Copy it now; if you lose it, revoke it and mint another.',
   })
-  @ApiResponse({ status: 201, description: 'Key created; `key` is the secret.' })
+  @ApiResponse({
+    status: 201,
+    description: 'Key created; `key` is the secret.',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'You already hold an active key. A user may have only one at a time — ' +
+      'revoke it first.',
+  })
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateApiKeyDto) {
     return this.apiKeys.create(user.id, dto.name);
+  }
+
+  @Get('active')
+  @ApiOperation({
+    summary: 'Your current API key',
+    description:
+      'The one active key, or null if you hold none. Never includes the ' +
+      'secret — that is returned only when the key is minted.',
+  })
+  active(@CurrentUser() user: AuthenticatedUser) {
+    return this.apiKeys.active(user.id);
   }
 
   @Get()
