@@ -22,6 +22,9 @@ export interface MovePayload {
 
 export type MoveAck = { ok: true } | { ok: false; reason: string };
 
+/** Seat assignment and the board's SHAPE. Its contents arrive with the
+ *  countdown, so the first player to join cannot study the position while
+ *  waiting for an opponent. */
 export interface JoinedEvent {
   player: PlayerIndex;
   board: { rows: number; cols: number; mineCount: number };
@@ -35,6 +38,16 @@ export interface JoinedEvent {
  */
 export interface CountdownEvent {
   ms: number;
+  /**
+   * Cells the server opened, identical for both players and the first sight
+   * either gets of the board.
+   *
+   * The board is generated fresh per race and proven clearable by deduction
+   * alone — but only from a specific starting cell, so the server picks that
+   * cell and opens it for everyone rather than letting each player's first
+   * click define a different puzzle. Nobody dies on click one either.
+   */
+  opening: CellChange[];
   players: { player: PlayerIndex; login: string }[];
 }
 
@@ -60,6 +73,30 @@ export interface GameOverEvent {
 export interface PresenceEvent {
   player: PlayerIndex;
   connected: boolean;
+}
+
+/**
+ * Strip the contents out of a batch of changes, leaving only which cells were
+ * touched — the client-side twin of the backend's `fogOfWar`.
+ *
+ * The server already fogs everything it sends about the opponent. This is for
+ * the one thing it cannot: the shared opening, which arrives once and is
+ * applied to BOTH grids. Showing it in full on the enemy grid would leak
+ * nothing (both players were handed the same cells), but it would make that
+ * grid mean two different things — real numbers at the start, blanks
+ * afterwards. Fogging it keeps the enemy grid a pure progress view.
+ */
+export function fog(changes: CellChange[]): CellChange[] {
+  return changes.map((change) =>
+    change.state === "hidden"
+      ? { row: change.row, col: change.col, state: "hidden" as const }
+      : {
+          row: change.row,
+          col: change.col,
+          state: "revealed" as const,
+          adjacentMines: 0,
+        },
+  );
 }
 
 export function makeHiddenBoard(rows: number, cols: number): Cell[][] {

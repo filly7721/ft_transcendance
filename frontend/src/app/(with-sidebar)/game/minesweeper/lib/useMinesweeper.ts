@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import { useBfcache } from "@/lib/useBfcache";
 import type { Cell } from "../components/CellDisplay";
 import {
   applyChanges,
+  fog,
   makeHiddenBoard,
   type BoardUpdateEvent,
   type CountdownEvent,
@@ -52,6 +52,10 @@ export interface MinesweeperGameState {
   result: GameOverEvent | null;
   /** Last server-side rejection or connection problem, for display. */
   notice: string | null;
+  /** Raw `game:error` reason when the connection was refused, else null.
+   *  Kept separate from `notice` so callers can branch on it (see
+   *  useRejection) instead of matching on prose. */
+  rejection: string | null;
   reveal: (row: number, col: number) => void;
   flag: (row: number, col: number) => void;
 }
@@ -72,18 +76,17 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
   const [player, setPlayer] = useState<PlayerIndex | null>(null);
   const [opponent, setOpponent] = useState<string | null>(null);
   const [opponentOnline, setOpponentOnline] = useState(true);
-  const [myBoard, setMyBoard] = useState<Cell[][]>(() => makeHiddenBoard(9, 9));
-  const [enemyBoard, setEnemyBoard] = useState<Cell[][]>(() => makeHiddenBoard(9, 9));
+  // Empty until 'game:joined' arrives with the dimensions the server rolled.
+  // Guessing a size here would mean hardcoding the backend's BOARD_ROWS/COLS
+  // a second time, where nothing would catch the two drifting apart — so the
+  // board is simply not drawn until its real shape is known.
+  const [myBoard, setMyBoard] = useState<Cell[][]>([]);
+  const [enemyBoard, setEnemyBoard] = useState<Cell[][]>([]);
   const [mineCount, setMineCount] = useState(0);
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [rejection, setRejection] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-
-  // Gracefully disconnect/reconnect the game socket on bfcache freeze/restore.
-  useBfcache(socketRef, () => {
-    const socket = io(SOCKET_URL, { query: { lobby: lobbyCode }, transports: ["websocket"] });
-    socketRef.current = socket;
-  });
   // Our seat, readable inside socket handlers without a stale closure.
   const seatRef = useRef<PlayerIndex | null>(null);
 
@@ -93,8 +96,11 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     // reused manager (SPA navigation, chat/social sockets on the same
     // origin) would silently resend the FIRST connection's query and drop
     // us into the wrong room.
+    //
+    // `auth` is a callback so socket.io's own reconnects re-read the token
+    // rather than replaying whatever was in storage when the effect ran.
     const socket = io(SOCKET_URL, {
-      auth: { token: getToken(), lobby: lobbyCode },
+      auth: (cb) => cb({ token: getToken(), lobby: lobbyCode }),
       transports: ["websocket"],
     });
     socketRef.current = socket;
@@ -105,8 +111,12 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
       setOpponent(null);
       setOpponentOnline(true);
       setMineCount(event.board.mineCount);
-      setMyBoard(makeHiddenBoard(event.board.rows, event.board.cols));
-      setEnemyBoard(makeHiddenBoard(event.board.rows, event.board.cols));
+      // Shape only — both grids stay fully covered until the countdown hands
+      // over the opening. Whoever gets here first must not be able to study
+      // the position while the second player is still joining.
+      const { rows, cols } = event.board;
+      setMyBoard(makeHiddenBoard(rows, cols));
+      setEnemyBoard(makeHiddenBoard(rows, cols));
       setResult(null);
       setCountdownEndsAt(null);
       setPhase("waiting");
@@ -121,6 +131,14 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     socket.on("game:countdown", (event: CountdownEvent) => {
       const other = event.players?.find((p) => p.player !== seatRef.current);
       setOpponent(other?.login ?? null);
+      // First sight of the board, for both players at once. Ours in full;
+      // the opponent's grid gets it fogged, so it reads the same as every
+      // opponent:update that follows.
+      const opening = event.opening ?? [];
+      if (opening.length > 0) {
+        setMyBoard((board) => applyChanges(board, opening));
+        setEnemyBoard((board) => applyChanges(board, fog(opening)));
+      }
       // Anchor the clock and the deadline in the same instant, so the first
       // frame shows the full count rather than a leftover `now`.
       const startedAt = Date.now();
@@ -153,6 +171,7 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     });
     socket.on("game:error", (event: { reason: string }) => {
       setPhase("rejected");
+      setRejection(event.reason);
       setNotice(ERROR_NOTICES[event.reason] ?? event.reason);
     });
     socket.on("connect_error", () => {
@@ -209,6 +228,7 @@ export function useMinesweeper(lobbyCode: string): MinesweeperGameState {
     mineCount,
     result,
     notice,
+    rejection,
     reveal,
     flag,
   };

@@ -10,9 +10,18 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Namespace, Socket } from 'socket.io';
-import { MinesweeperEngine } from './engine/minesweeper.engine';
-import { DEFAULT_MAP } from './engine/maps';
-import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import {
+  MinesweeperEngine,
+  type BoardSpec,
+  type CellChange,
+} from './engine/minesweeper.engine';
+import { generateNoGuessBoard } from './engine/generator';
+import {
+  WsMessageLimiter,
+  WsRateLimiter,
+  getSocketIp,
+  verifyWsToken,
+} from '../common/ws-auth';
 import { FRONTEND_ORIGIN } from '../config/frontend-origin';
 import { LobbiesService } from '../lobbies/lobbies.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,7 +31,7 @@ import { PrismaService } from '../prisma/prisma.service';
  *
  * The client passes its room code in `handshake.query.lobby` (the
  * "xxx-xxx-xxx" code from POST /lobbies); each room seats two players who
- * race on identical copies of the hardcoded map. Rooms are created lazily on
+ * race on identical copies of a freshly generated no-guess map. Rooms are created lazily on
  * first connect and destroyed when the last player leaves. Game rules live
  * in MinesweeperEngine.
  *
@@ -34,20 +43,28 @@ import { PrismaService } from '../prisma/prisma.service';
  *   'game:flag'   { row, col }
  *
  * Server -> client:
- *   'game:joined'     you were seated (also sent again if the room resets
- *                     because your opponent left — treat it as a full reset;
- *                     a mid-game reconnect follows it with game:update /
- *                     opponent:update snapshots replaying both boards)
- *   'game:countdown'  { ms, players } — both seats are taken and the race
- *                     starts in `ms`; moves are still rejected until it does.
- *                     Sent as a duration, not a wall-clock deadline, so client
- *                     clock skew can't shift it; a client rejoining mid-count
- *                     gets the remainder. Carries the same `players` as
- *                     game:start, so the opponent has a name on screen while
- *                     the count runs.
+ *   'game:joined'     { player, board: { rows, cols, mineCount } } — you were
+ *                     seated. Carries the board's SHAPE only: the contents
+ *                     wait for game:countdown, so whoever arrives first cannot
+ *                     study the position while the second player is still
+ *                     joining. Also sent again if the room resets because your
+ *                     opponent left — treat it as a full reset; a mid-game
+ *                     reconnect follows it with game:update / opponent:update
+ *                     snapshots replaying both boards.
+ *   'game:countdown'  { ms, opening, players } — both seats are taken and the
+ *                     race starts in `ms`; moves are still rejected until it
+ *                     does. `opening` is the server's starting reveal, the
+ *                     same cells for both players and the first sight either
+ *                     of them gets of the board. Sent as a duration, not a
+ *                     wall-clock deadline, so client clock skew can't shift
+ *                     it; a client rejoining mid-count gets the remainder.
+ *                     Carries the same `players` as game:start, so the
+ *                     opponent has a name on screen while the count runs.
  *   'game:start'      { players: [{ player, login }, ...] } — moves accepted
- *   'game:update'     changes to YOUR board
- *   'opponent:update' changes to the OPPONENT's board (side-by-side view)
+ *   'game:update'     changes to YOUR board, in full
+ *   'opponent:update' changes to the OPPONENT's board with their contents
+ *                     stripped (see fogOfWar) — position and extent only,
+ *                     never numbers, since both race an identical layout
  *   'game:presence'   { player, connected } — a seated player dropped
  *                     mid-game (or came back); the race keeps running
  *   'game:over'       { winner, reason: 'mine' | 'cleared' }
@@ -77,6 +94,15 @@ interface Room {
   /** logins[i] is player i+1's public login, for opponent display. */
   logins: (string | null)[];
   engines: MinesweeperEngine[];
+  /** The layout both engines run on — freshly generated per race, and proven
+   *  clearable without guessing from `opening`. Its shape is what `game:joined`
+   *  reports. */
+  board: BoardSpec;
+  /** The cells the server opened before the race, identical for both players.
+   *  Replayed on `game:joined` so both start from the same information — see
+   *  engine/generator for why the server picks the opening rather than the
+   *  players' first clicks. */
+  opening: CellChange[];
   status: 'waiting' | 'countdown' | 'playing' | 'over';
   /** Fires at the end of the pre-race countdown and flips 'countdown' ->
    *  'playing'. Null outside the countdown. */
@@ -89,6 +115,39 @@ interface Room {
   emptyTimer: NodeJS.Timeout | null;
 }
 
+/**
+ * An opponent's move as the other player is allowed to see it.
+ *
+ * Both players race the SAME layout, so every number the opponent uncovers is
+ * the answer to the identical cell on your own board — `opponent:update` used
+ * to send `adjacentMines` and `isMine` verbatim, which made the side-by-side
+ * view a live solution key. Now every touched cell is flattened to a blank:
+ * the view still shows how far along they are, and nothing about what they
+ * found there.
+ *
+ * Flags and reveals are deliberately indistinguishable — a flag marks a cell
+ * the opponent believes is a mine, which is a deduction, not just progress.
+ * Removing a flag is the one thing that reads through, as the cell goes back
+ * to untouched; that leaks their uncertainty, never the board.
+ *
+ * This has to happen server-side. Blanking it in the client would be theatre:
+ * the real numbers would still cross the wire for anyone with devtools open.
+ */
+function fogOfWar(changes: CellChange[]): CellChange[] {
+  return changes.map((change) =>
+    change.state === 'hidden'
+      ? { row: change.row, col: change.col, state: 'hidden' as const }
+      : {
+          row: change.row,
+          col: change.col,
+          state: 'revealed' as const,
+          // No adjacentMines and no isMine — the latter would otherwise
+          // render a bomb at a real mine position on a shared layout.
+          adjacentMines: 0,
+        },
+  );
+}
+
 /** Room codes come from user-controlled input, so bound their shape. */
 const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
 /** Both players are in — hold the race for this long so nobody starts
@@ -97,6 +156,9 @@ const COUNTDOWN_MS = 3_000;
 /** How long a mid-game room survives with both players disconnected —
  *  long enough for a refresh (or both refreshing at once) to come back. */
 const EMPTY_GRACE_MS = 30_000;
+/** Moves accepted from one socket per minute. Far above a human clicking
+ *  flat out; nothing counted socket traffic before this. */
+const MOVES_PER_MIN = 300;
 
 @WebSocketGateway({
   namespace: 'minesweeper',
@@ -118,6 +180,11 @@ export class MinesweeperGateway
   /** Live races keyed by lobby room code. */
   private readonly rooms = new Map<string, Room>();
 
+  /** Per-socket flood stop. Sized for a fast player hammering the board,
+   *  not for a script: the engine rejects illegal moves cheaply, but it
+   *  still runs on the event loop and broadcasts to the room. */
+  private readonly moves = new WsMessageLimiter(MOVES_PER_MIN);
+
   constructor(
     private readonly jwt: JwtService,
     private readonly rateLimiter: WsRateLimiter,
@@ -128,7 +195,9 @@ export class MinesweeperGateway
   async handleConnection(client: Socket): Promise<void> {
     const payload = await verifyWsToken(client, this.jwt);
     if (!payload) {
-      this.logger.warn(`rejecting ${client.id}: unauthorized (no/invalid token)`);
+      this.logger.warn(
+        `rejecting ${client.id}: unauthorized (no/invalid token)`,
+      );
       client.emit('game:error', { reason: 'unauthorized' });
       client.disconnect(true);
       return;
@@ -154,17 +223,34 @@ export class MinesweeperGateway
       return;
     }
 
+    // A seat already held in a live room is proof this user passed the
+    // check below when they took it, so a reconnect (refresh, second tab)
+    // never re-queries — and still resumes after the lobby row has been
+    // cleaned up under a running game. Anyone taking a NEW seat has to be a
+    // member of a real lobby row for this game: without that, the join
+    // endpoint (where capacity is enforced) is skippable, since room codes
+    // are public via GET /lobbies.
+    const holdsSeat =
+      this.rooms.get(code)?.userIds.includes(payload.sub) ?? false;
+    if (
+      !holdsSeat &&
+      !(await this.lobbies.canJoinGame(code, 'minesweeper', payload.sub))
+    ) {
+      this.logger.warn(
+        `rejecting ${client.id}: no lobby membership for ${code}`,
+      );
+      client.emit('game:error', { reason: 'invalid_lobby' });
+      client.disconnect(true);
+      return;
+    }
+
+    // Re-read the map AFTER that await, never before it: two players opening
+    // a brand-new code at the same moment both miss the map, and whichever
+    // created its Room second used to overwrite the first — stranding the
+    // player seated in the orphaned one, whose every move then came back
+    // "you are not in the game".
     let room = this.rooms.get(code);
     if (!room) {
-      // Only a real lobby row may open a new room — otherwise any made-up
-      // code pasted into the game URL would fabricate a playable room.
-      // Live rooms above skip this so resumes survive row cleanup.
-      if (!(await this.lobbies.existsForGame(code, 'minesweeper'))) {
-        this.logger.warn(`rejecting ${client.id}: no lobby for code ${code}`);
-        client.emit('game:error', { reason: 'invalid_lobby' });
-        client.disconnect(true);
-        return;
-      }
       room = this.createRoom();
       this.rooms.set(code, room);
     }
@@ -180,12 +266,13 @@ export class MinesweeperGateway
       client.data.room = code;
       await client.join(code);
       this.clearEmptyTimer(room);
-      client.emit('game:joined', this.joinedEvent(ownSeat));
+      client.emit('game:joined', this.joinedEvent(room, ownSeat));
       if (room.status === 'countdown' && room.countdownEndsAt !== null) {
         // Rejoined mid-countdown: hand them what is left of it. The
         // 'game:start' at the end goes to the room, so this socket gets it.
         client.emit('game:countdown', {
           ms: Math.max(0, room.countdownEndsAt - Date.now()),
+          opening: room.opening,
           ...this.startEvent(room),
         });
       }
@@ -199,7 +286,7 @@ export class MinesweeperGateway
         });
         client.emit('opponent:update', {
           player: (2 - ownSeat) as PlayerIndex,
-          changes: room.engines[1 - ownSeat].snapshot(),
+          changes: fogOfWar(room.engines[1 - ownSeat].snapshot()),
           outcome: 'continue',
         });
         client.emit('game:start', this.startEvent(room));
@@ -251,7 +338,7 @@ export class MinesweeperGateway
     room.logins[seat] = payload.login;
     client.data.room = code;
     await client.join(code);
-    client.emit('game:joined', this.joinedEvent(seat));
+    client.emit('game:joined', this.joinedEvent(room, seat));
     this.logger.log(
       `client ${client.id} (login=${payload.login}) seated as player ${seat + 1} in room ${code}`,
     );
@@ -268,6 +355,7 @@ export class MinesweeperGateway
     // rejected after tryAcquire, whose room entry never existed.
     const ip = (client.data as { ip?: string }).ip;
     if (ip) this.rateLimiter.release('minesweeper', ip);
+    this.moves.forget(client.id);
 
     const found = this.roomOf(client);
     if (!found) return;
@@ -317,10 +405,14 @@ export class MinesweeperGateway
     room.seats = [survivor, null];
     room.userIds = [survivorUserId, null];
     room.logins = [survivorLogin, null];
-    room.engines = this.freshEngines();
+    // A new race means a new layout: reusing this one would hand the survivor
+    // a board they have already seen against their next opponent.
+    Object.assign(room, this.freshBoard());
     room.status = 'waiting';
-    this.server.to(survivor).emit('game:joined', this.joinedEvent(0));
-    this.logger.log(`client ${client.id} left, room ${code} reset for survivor`);
+    this.server.to(survivor).emit('game:joined', this.joinedEvent(room, 0));
+    this.logger.log(
+      `client ${client.id} left, room ${code} reset for survivor`,
+    );
   }
 
   @SubscribeMessage('game:reveal')
@@ -344,6 +436,9 @@ export class MinesweeperGateway
     kind: 'reveal' | 'flag',
     payload: Partial<MovePayload> | undefined,
   ): Promise<MoveAck> {
+    if (!this.moves.tryConsume(client.id)) {
+      return { ok: false, reason: 'rate limited — slow down' };
+    }
     const found = this.roomOf(client);
     if (!found) return { ok: false, reason: 'you are not in the game' };
     const { code, room, seat } = found;
@@ -374,10 +469,11 @@ export class MinesweeperGateway
       return result;
     }
 
-    // Your own board changes come back on 'game:update'; the same changes go
-    // to the opponent as 'opponent:update' to feed the side-by-side view.
-    // A disconnected opponent misses nothing: their rejoin replays the full
-    // board snapshot.
+    // Your own board changes come back in full on 'game:update'. The opponent
+    // gets the same move on 'opponent:update' with its contents stripped (see
+    // fogOfWar) — enough to watch you advance, not enough to read your numbers
+    // off a board identical to theirs. A disconnected opponent misses nothing:
+    // their rejoin replays the snapshot, fogged the same way.
     const update = {
       player: (seat + 1) as PlayerIndex,
       changes: result.changes,
@@ -385,7 +481,12 @@ export class MinesweeperGateway
     };
     client.emit('game:update', update);
     const opponent = room.seats[1 - seat];
-    if (opponent) this.server.to(opponent).emit('opponent:update', update);
+    if (opponent) {
+      this.server.to(opponent).emit('opponent:update', {
+        ...update,
+        changes: fogOfWar(result.changes),
+      });
+    }
 
     if (result.outcome !== 'continue') {
       room.status = 'over';
@@ -394,7 +495,9 @@ export class MinesweeperGateway
       ) as PlayerIndex;
       const reason = result.outcome === 'win' ? 'cleared' : 'mine';
       this.server.to(code).emit('game:over', { winner, reason });
-      this.logger.log(`room ${code} game over: player ${winner} wins (${reason})`);
+      this.logger.log(
+        `room ${code} game over: player ${winner} wins (${reason})`,
+      );
 
       // Record game results for stats (win for winner, loss for loser).
       const winnerIdx = winner - 1; // 0-indexed
@@ -450,7 +553,7 @@ export class MinesweeperGateway
       seats: [null, null],
       userIds: [null, null],
       logins: [null, null],
-      engines: this.freshEngines(),
+      ...this.freshBoard(),
       status: 'waiting',
       startTimer: null,
       countdownEndsAt: null,
@@ -462,14 +565,21 @@ export class MinesweeperGateway
    * Both seats are taken: announce the countdown, then start the race when it
    * runs out. Moves stay rejected ('countdown' is not 'playing') until then,
    * so neither player can open a cell before the other is looking.
+   *
+   * This is also where the board is first shown. The opening used to ride on
+   * `game:joined`, which handed whoever created the lobby the whole starting
+   * position to study for as long as it took someone else to turn up. Sending
+   * it with the countdown gives both players the same three seconds with it.
    */
   private startCountdown(code: string, room: Room): void {
     this.clearStartTimer(room);
     room.status = 'countdown';
     room.countdownEndsAt = Date.now() + COUNTDOWN_MS;
-    this.server
-      .to(code)
-      .emit('game:countdown', { ms: COUNTDOWN_MS, ...this.startEvent(room) });
+    this.server.to(code).emit('game:countdown', {
+      ms: COUNTDOWN_MS,
+      opening: room.opening,
+      ...this.startEvent(room),
+    });
     this.logger.log(
       `room ${code}: both players connected, race starts in ${COUNTDOWN_MS / 1000}s`,
     );
@@ -525,20 +635,43 @@ export class MinesweeperGateway
     };
   }
 
-  private freshEngines(): MinesweeperEngine[] {
-    return [
-      new MinesweeperEngine(DEFAULT_MAP),
-      new MinesweeperEngine(DEFAULT_MAP),
-    ];
+  /**
+   * A brand-new race: one freshly generated no-guess layout, two engines
+   * running it, and the server's opening already applied to both.
+   *
+   * Both players race the same board — that is the whole point of the mode —
+   * so the two engines are built from one spec and opened at the same cell.
+   * The changes are read back from the first engine rather than recomputed,
+   * so what the clients render is exactly what the server's own state says.
+   */
+  private freshBoard(): Pick<Room, 'engines' | 'board' | 'opening'> {
+    const { spec, opening } = generateNoGuessBoard();
+    const engines = [new MinesweeperEngine(spec), new MinesweeperEngine(spec)];
+    const [row, col] = opening;
+    const opened = engines.map((engine) => engine.reveal(row, col));
+
+    // The generator only ever returns a safe, non-terminal opening, so this
+    // cannot fail — but an empty opening would silently hand the players a
+    // blank board, which is worth a loud log rather than a shrug.
+    const first = opened[0];
+    if (!first.ok) {
+      this.logger.error(
+        `generated opening (${row}, ${col}) was rejected by the engine`,
+      );
+      return { engines, board: spec, opening: [] };
+    }
+    return { engines, board: spec, opening: first.changes };
   }
 
-  private joinedEvent(seat: number) {
+  /** Seat assignment and the board's shape — deliberately NOT its contents.
+   *  The opening ships with `game:countdown`, once both players are present. */
+  private joinedEvent(room: Room, seat: number) {
     return {
       player: (seat + 1) as PlayerIndex,
       board: {
-        rows: DEFAULT_MAP.rows,
-        cols: DEFAULT_MAP.cols,
-        mineCount: DEFAULT_MAP.mines.length,
+        rows: room.board.rows,
+        cols: room.board.cols,
+        mineCount: room.board.mines.length,
       },
     };
   }
