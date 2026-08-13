@@ -8,7 +8,7 @@
 
 ### Key Features
 
-- **User Authentication** — secure signup/login with bcrypt-hashed passwords, JWT tokens, password reset flow
+- **User Authentication** — secure signup/login with bcrypt-hashed passwords and JWT tokens
 - **Profile Management** — customizable display name, avatar upload, public profile pages with game statistics
 - **Friend System** — send/accept/reject friend requests, see online status, unfriend
 - **Real-time Chat** — direct messages between friends with typing indicators, read receipts, and presence updates
@@ -82,6 +82,11 @@ Open `http://localhost:3000` in Chrome.
 ### Using the public API
 
 Interactive docs (Swagger UI): **`http://localhost:3001/api/docs`**
+
+The easiest way to get a key is the **Settings** page — the API KEY panel
+generates one, shows the secret once, and revokes it again. Each account may
+hold **one active key at a time**; minting a second returns 409 until the
+current one is revoked. The equivalent over HTTP:
 
 ```bash
 # 1. Sign in to get a session token.
@@ -187,17 +192,17 @@ SQLite for local development (zero-setup, file-based). PostgreSQL for production
 
 ```
 ┌──────────────────┐     ┌─────────────────────┐
-│      User        │     │ PasswordResetToken  │
+│      User        │     │       ApiKey        │
 ├──────────────────┤     ├─────────────────────┤
-│ id (UUID, PK)    │◄──┐ │ id (Int, PK)        │
+│ id (UUID, PK)    │◄──┐ │ id (UUID, PK)       │
 │ email (unique)   │   │ │ userId (FK → User)  │
-│ login (unique)   │   │ │ tokenHash (unique)  │
-│ displayName      │   │ │ expiresAt           │
-│ passwordHash     │   │ │ usedAt              │
-│ avatarUrl        │   └─┤ createdAt           │
-│ createdAt        │     └─────────────────────┘
-│ updatedAt        │
-└──────┬───┬───┬───┘
+│ login (unique)   │   │ │ name                │
+│ displayName      │   │ │ keyHash (unique)    │
+│ passwordHash     │   │ │ prefix              │
+│ avatarUrl        │   │ │ lastUsedAt          │
+│ createdAt        │   └─┤ revokedAt           │
+│ updatedAt        │     │ createdAt           │
+└──────┬───┬───┬───┘     └─────────────────────┘
        │   │   │
        │1  │1  │1
        │   │   │
@@ -247,7 +252,7 @@ Additionally:
 └──────────────────────┘
 ```
 
-**Models**: User, PasswordResetToken, Lobby, LobbyMember, Friendship, Message, GameResult, ApiKey
+**Models**: User, Lobby, LobbyMember, Friendship, Message, GameResult, ApiKey
 
 ## Features List
 
@@ -255,11 +260,11 @@ Additionally:
 |---------|-------------|----------------|
 | User Registration | Email + login + password with bcrypt hashing | `<member>` |
 | User Login | JWT-based authentication | `<member>` |
-| Password Reset | SHA-256 hashed tokens, 15-min expiry | `<member>` |
 | Profile Viewing | Public profile with stats (no email leak) | `<member>` |
 | Profile Editing | Update display name | `<member>` |
 | Avatar Upload | PNG/JPEG/WebP, 2MB max, multer diskStorage | `<member>` |
-| Friend Requests | Send/accept/reject/unfriend | `<member>` |
+| Friend Requests | Send/accept/reject/unfriend, with a real-time decline notice | `<member>` |
+| Blocking | Blocks end the friendship, stop messages both ways, and hide both users' lobbies from each other | `<member>` |
 | Online Status | Real-time presence via WebSocket | `<member>` |
 | Direct Messaging | Real-time chat with friends via Socket.IO | `<member>` |
 | Typing Indicators | Real-time typing notifications | `<member>` |
@@ -271,6 +276,7 @@ Additionally:
 | Public API | `/api/v1` with API keys, per-key rate limiting, OpenAPI docs | `<member>` |
 | Design System | Pixel icon set, shared primitives, `/design` reference page | `<member>` |
 | Security Hardening | JWT on WS, rate limiting, idle timeouts | `<member>` |
+| Privacy Policy & Terms | Public `/privacy` and `/terms`, written against what the schema actually stores | `<member>` |
 
 ## Modules
 
@@ -282,7 +288,7 @@ Additionally:
 | Git with clear commit messages, work split across the team | ✅ |
 | Docker/Podman single-command deployment | ❌ **not started** |
 | Google Chrome compatible, no console errors | ✅ |
-| Privacy Policy + Terms of Service pages | ❌ **not written** |
+| Privacy Policy + Terms of Service pages | ✅ `/privacy`, `/terms`, linked from the footer |
 | Multi-user support (concurrent, real-time) | ✅ |
 | CSS framework (Tailwind CSS 4) | ✅ |
 | `.env` + `.env.example`, secrets git-ignored | ✅ |
@@ -291,9 +297,11 @@ Additionally:
 | Form validation, frontend **and** backend | ✅ |
 | HTTPS for every browser→backend connection | ❌ **plain HTTP today** |
 
-> The three ❌ items are **rejection criteria**, not point deductions: the
-> subject rejects the project outright if they are missing, no matter how many
-> module points are earned. They are the top of the backlog.
+> The two remaining ❌ items are **rejection criteria**, not point deductions:
+> the subject rejects the project outright if they are missing, no matter how
+> many module points are earned. They are the top of the backlog, and they
+> close together — terminating TLS at an nginx container in front of both
+> services solves the HTTPS requirement as part of the Docker one.
 
 ### Chosen Modules — 16 points
 
@@ -358,7 +366,7 @@ Honest accounting — these are implemented in part, and are **not** counted abo
 |--------|---------------------------|
 | Add another game w/ history + matchmaking | Minesweeper is playable, but no `GameResult` row is ever written and there is no matchmaking. 2 of 4 bullets fail. |
 | Game statistics / match history | Same cause: the stats endpoint reads a table nothing writes to. |
-| Advanced chat | Has typing indicators, read receipts, history — but no user blocking and no game invites from chat. |
+| Advanced chat | Has typing indicators, read receipts, history, profile access and user blocking — but no game invites from chat and no game/tournament notifications in chat. 4 of 6 bullets. |
 | Notification system | Real-time badges for friend requests and unread messages only, not notifications for all create/update/delete actions. |
 | SSR | Next.js server-renders by default, but the `(with-sidebar)` layout gates on client-side auth and returns `null`, so protected pages ship empty HTML. Claiming it would be dishonest until auth moves to a cookie session. |
 | Multiple browser support | Very likely works in Firefox/Edge, but the module requires testing, fixing and documenting each — none of which has been done. |
