@@ -17,7 +17,12 @@ import {
   PlayerIndex,
   SuperTttEngine,
 } from './engine/superttt.engine';
-import { WsRateLimiter, getSocketIp, verifyWsToken } from '../common/ws-auth';
+import {
+  WsMessageLimiter,
+  WsRateLimiter,
+  getSocketIp,
+  verifyWsToken,
+} from '../common/ws-auth';
 import { FRONTEND_ORIGIN } from '../config/frontend-origin';
 import { LobbiesService } from '../lobbies/lobbies.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -109,6 +114,9 @@ interface Room {
  *  A game with a player present never expires — players are free to sit in a
  *  lobby, or think over a move, for as long as they like. */
 const EMPTY_GRACE_MS = 30_000;
+/** Moves accepted from one socket per minute. Far above a human clicking
+ *  flat out; nothing counted socket traffic before this. */
+const MOVES_PER_MIN = 300;
 /** Room codes come from user-controlled input, so bound their shape. */
 const ROOM_CODE_RE = /^[a-zA-Z0-9-]{1,32}$/;
 
@@ -132,6 +140,11 @@ export class SuperTttGateway
   /** Live game sessions keyed by lobby room code. */
   private readonly rooms = new Map<string, Room>();
 
+  /** Per-socket flood stop. Sized for a fast player hammering the board,
+   *  not for a script: the engine rejects illegal moves cheaply, but it
+   *  still runs on the event loop and broadcasts to the room. */
+  private readonly moves = new WsMessageLimiter(MOVES_PER_MIN);
+
   constructor(
     private readonly jwt: JwtService,
     private readonly rateLimiter: WsRateLimiter,
@@ -143,7 +156,9 @@ export class SuperTttGateway
     // C1: verify JWT before doing anything else.
     const payload = await verifyWsToken(client, this.jwt);
     if (!payload) {
-      this.logger.warn(`rejecting ${client.id}: unauthorized (no/invalid token)`);
+      this.logger.warn(
+        `rejecting ${client.id}: unauthorized (no/invalid token)`,
+      );
       client.emit('game:error', { reason: 'unauthorized' });
       client.disconnect(true);
       return;
@@ -170,17 +185,34 @@ export class SuperTttGateway
       return;
     }
 
+    // A seat already held in a live room is proof this user passed the
+    // check below when they took it, so a reconnect (refresh, second tab)
+    // never re-queries — and still resumes after the lobby row has been
+    // cleaned up under a running game. Anyone taking a NEW seat has to be a
+    // member of a real lobby row for this game: without that, the join
+    // endpoint (where capacity is enforced) is skippable, since room codes
+    // are public via GET /lobbies.
+    const holdsSeat =
+      this.rooms.get(code)?.userIds.includes(payload.sub) ?? false;
+    if (
+      !holdsSeat &&
+      !(await this.lobbies.canJoinGame(code, 'super-tic-tac-toe', payload.sub))
+    ) {
+      this.logger.warn(
+        `rejecting ${client.id}: no lobby membership for ${code}`,
+      );
+      client.emit('game:error', { reason: 'invalid_lobby' });
+      client.disconnect(true);
+      return;
+    }
+
+    // Re-read the map AFTER that await, never before it: two players opening
+    // a brand-new code at the same moment both miss the map, and whichever
+    // created its Room second used to overwrite the first — stranding the
+    // player seated in the orphaned one, whose every move then came back
+    // "you are not in the game".
     let room = this.rooms.get(code);
     if (!room) {
-      // Only a real lobby row may open a new room — otherwise any made-up
-      // code pasted into the game URL would fabricate a playable room.
-      // Live rooms above skip this so resumes survive row cleanup.
-      if (!(await this.lobbies.existsForGame(code, 'super-tic-tac-toe'))) {
-        this.logger.warn(`rejecting ${client.id}: no lobby for code ${code}`);
-        client.emit('game:error', { reason: 'invalid_lobby' });
-        client.disconnect(true);
-        return;
-      }
       room = this.createRoom();
       this.rooms.set(code, room);
     }
@@ -272,6 +304,7 @@ export class SuperTttGateway
     // entry is already gone by the time this handler runs.
     const ip = (client.data as { ip?: string }).ip;
     if (ip) this.rateLimiter.release('super-tic-tac-toe', ip);
+    this.moves.forget(client.id);
 
     const found = this.roomOf(client);
     if (!found) return;
@@ -321,7 +354,9 @@ export class SuperTttGateway
     room.engine = new SuperTttEngine();
     room.status = 'waiting';
     this.server.to(survivor).emit('game:joined', this.joinedEvent(room, 0));
-    this.logger.log(`client ${client.id} left, room ${code} reset for survivor`);
+    this.logger.log(
+      `client ${client.id} left, room ${code} reset for survivor`,
+    );
   }
 
   @SubscribeMessage('game:move')
@@ -329,6 +364,9 @@ export class SuperTttGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<MovePayload> | undefined,
   ): Promise<MoveAck> {
+    if (!this.moves.tryConsume(client.id)) {
+      return { ok: false, reason: 'rate limited — slow down' };
+    }
     const found = this.roomOf(client);
     if (!found) {
       return { ok: false, reason: 'you are not in the game' };

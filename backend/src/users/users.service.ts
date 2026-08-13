@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, User, PasswordResetToken } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -23,7 +23,7 @@ export const publicUserSelect = {
 export type SafeUser = Omit<User, 'passwordHash'>;
 
 /**
- * Data-access layer for the User table (and its password-reset tokens).
+ * Data-access layer for the User table.
  *
  * Only exposes what the auth feature (and a guarded `/users/me`) needs.
  * Avatar upload, friends, roles, ELO, etc. are out of scope here and must be
@@ -100,43 +100,8 @@ export class UsersService {
     });
   }
 
-  /** Delete a user by id. Cascades to their password-reset tokens. */
+  /** Delete a user by id. Cascades to everything they own. */
   delete(id: string): Promise<User> {
     return this.prisma.user.delete({ where: { id } });
-  }
-
-  // ----- Password-reset tokens -------------------------------------------
-
-  /** Create a reset-token row. `tokenHash` must already be hashed (SHA-256). */
-  createResetToken(
-    userId: string,
-    tokenHash: string,
-    expiresAt: Date,
-  ): Promise<PasswordResetToken> {
-    return this.prisma.passwordResetToken.create({
-      data: { userId, tokenHash, expiresAt },
-    });
-  }
-
-  /** Find a non-expired, unused reset token by its hash. Null if not found. */
-  findValidResetToken(tokenHash: string): Promise<PasswordResetToken | null> {
-    return this.prisma.passwordResetToken.findUnique({
-      where: { tokenHash },
-    });
-  }
-
-  /** Mark a reset token as used (single-use enforcement). */
-  markResetTokenUsed(id: number): Promise<PasswordResetToken> {
-    return this.prisma.passwordResetToken.update({
-      where: { id },
-      data: { usedAt: new Date() },
-    });
-  }
-
-  /** Delete all expired tokens for a user (housekeeping). */
-  deleteExpiredResetTokens(userId: string): Promise<Prisma.BatchPayload> {
-    return this.prisma.passwordResetToken.deleteMany({
-      where: { userId, expiresAt: { lt: new Date() } },
-    });
   }
 }

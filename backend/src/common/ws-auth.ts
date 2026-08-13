@@ -52,6 +52,52 @@ export class WsRateLimiter {
 }
 
 /**
+ * Per-socket message rate limiter.
+ *
+ * `WsRateLimiter` above caps how many sockets an IP may OPEN; this caps what
+ * a socket may send once it is open, which nothing did. ThrottlerGuard only
+ * sees HTTP, so `POST /chat/:login` was capped at 30/min while the identical
+ * `chat:send` over the socket was unbounded — and each `chat:typing` costs
+ * two database queries. One connection could issue thousands a second.
+ *
+ * Fixed window per socket: cheap, and a window that lapses is replaced on the
+ * next message rather than swept, so there is no timer to manage. Sockets are
+ * dropped from the map by `forget()` on disconnect.
+ *
+ * Not a Nest provider — each gateway owns an instance sized to its own
+ * traffic, since a minesweeper race and a chat thread are nothing alike.
+ */
+export class WsMessageLimiter {
+  private readonly windows = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
+
+  constructor(
+    private readonly limit: number,
+    private readonly windowMs: number = 60_000,
+  ) {}
+
+  /** Consume one message's budget. False means the socket is over its limit. */
+  tryConsume(socketId: string): boolean {
+    const now = Date.now();
+    const window = this.windows.get(socketId);
+    if (!window || now >= window.resetAt) {
+      this.windows.set(socketId, { count: 1, resetAt: now + this.windowMs });
+      return true;
+    }
+    if (window.count >= this.limit) return false;
+    window.count++;
+    return true;
+  }
+
+  /** Drop a socket's window on disconnect, so the map can't grow unbounded. */
+  forget(socketId: string): void {
+    this.windows.delete(socketId);
+  }
+}
+
+/**
  * Extracts and verifies the JWT from a socket handshake (C1 fix).
  *
  * The token is expected in either:

@@ -15,6 +15,7 @@ import type { Response } from 'express';
  *
  *   P2002 (unique-constraint violation) -> 409 Conflict
  *   P2025 (record not found)            -> 404 Not Found
+ *   P2003 (foreign-key violation)       -> 409 Conflict
  *
  * Everything else is left to Nest's default exception handling (500 with no
  * leaked internals) — that is the correct default; never catch-and-swallow.
@@ -22,9 +23,7 @@ import type { Response } from 'express';
  * Registered globally in `main.ts` via `app.useGlobalFilters()`.
  */
 @Catch(Prisma.PrismaClientKnownRequestError)
-export class PrismaExceptionFilter
-  implements ExceptionFilter<Prisma.PrismaClientKnownRequestError>
-{
+export class PrismaExceptionFilter implements ExceptionFilter<Prisma.PrismaClientKnownRequestError> {
   private readonly logger = new Logger(PrismaExceptionFilter.name);
 
   catch(
@@ -45,6 +44,14 @@ export class PrismaExceptionFilter
       case 'P2025':
         status = HttpStatus.NOT_FOUND;
         message = 'record not found';
+        break;
+      case 'P2003':
+        // Foreign-key violation: something still references this row. Falling
+        // through to the 500 default made a predictable refusal look like a
+        // crash — deleting an account that hosted a lobby answered "database
+        // error" until Lobby.host started cascading.
+        status = HttpStatus.CONFLICT;
+        message = 'record is still referenced by other data';
         break;
     }
 

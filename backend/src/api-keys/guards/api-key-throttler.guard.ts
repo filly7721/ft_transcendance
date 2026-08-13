@@ -18,6 +18,8 @@ import type { ApiKeyRequest } from './api-key.guard';
 export class ApiKeyThrottlerGuard extends ThrottlerGuard {
   protected getTracker(req: ApiKeyRequest): Promise<string> {
     const owner = req.apiKeyOwnerId;
-    return Promise.resolve(owner ? `key:${owner}` : `ip:${req.ip ?? 'unknown'}`);
+    return Promise.resolve(
+      owner ? `key:${owner}` : `ip:${req.ip ?? 'unknown'}`,
+    );
   }
 }
