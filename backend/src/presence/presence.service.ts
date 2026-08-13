@@ -20,28 +20,50 @@ export class PresenceService {
   /** userId → Set of active socket IDs. */
   private readonly connections = new Map<string, Set<string>>();
 
-  /** Register a socket connection for a user. */
-  connect(userId: string, socketId: string): void {
+  /**
+   * Register a socket connection for a user.
+   *
+   * @returns true only when this was the user's FIRST socket — i.e. they went
+   * offline → online. Callers broadcast on that transition and stay quiet
+   * otherwise: one page opens both /social and /chat, so an unconditional
+   * broadcast told every friend "came online" twice per page load, and again
+   * for every extra tab.
+   */
+  connect(userId: string, socketId: string): boolean {
     let sockets = this.connections.get(userId);
+    const cameOnline = sockets === undefined || sockets.size === 0;
     if (!sockets) {
       sockets = new Set();
       this.connections.set(userId, sockets);
     }
     sockets.add(socketId);
-    this.logger.debug(`user ${userId} connected (socket ${socketId}, ${sockets.size} total)`);
+    this.logger.debug(
+      `user ${userId} connected (socket ${socketId}, ${sockets.size} total)`,
+    );
+    return cameOnline;
   }
 
-  /** Remove a socket connection for a user. */
-  disconnect(userId: string, socketId: string): void {
+  /**
+   * Remove a socket connection for a user.
+   *
+   * @returns true only when this was the user's LAST socket — closing one tab
+   * of several must not tell their friends they left.
+   */
+  disconnect(userId: string, socketId: string): boolean {
     const sockets = this.connections.get(userId);
-    if (!sockets) return;
-    sockets.delete(socketId);
+    if (!sockets) return false;
+    if (!sockets.delete(socketId)) return false;
     if (sockets.size === 0) {
       this.connections.delete(userId);
-      this.logger.debug(`user ${userId} is now offline (last socket disconnected)`);
-    } else {
-      this.logger.debug(`user ${userId} socket ${socketId} disconnected (${sockets.size} remaining)`);
+      this.logger.debug(
+        `user ${userId} is now offline (last socket disconnected)`,
+      );
+      return true;
     }
+    this.logger.debug(
+      `user ${userId} socket ${socketId} disconnected (${sockets.size} remaining)`,
+    );
+    return false;
   }
 
   /** True if the user has at least one active connection. */

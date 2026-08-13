@@ -10,11 +10,7 @@ import {
   type Conversation,
   type Message,
 } from "@/lib/chat";
-import { getToken } from "@/lib/auth-storage";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useBfcache } from "@/lib/useBfcache";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 /**
  * Apply a message to the conversation list locally, without a REST re-fetch:
@@ -70,27 +66,37 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   const [typing, setTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<ReturnType<typeof createChatSocket> | null>(null);
-
-  // Gracefully disconnect/reconnect the chat socket on bfcache freeze/restore
-  // (prevents "WebSocket failed: Page entered Back-Forward Cache" warnings).
-  useBfcache(socketRef, () => {
-    const socket = createChatSocket();
-    socketRef.current = socket;
-  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // The socket connects once; handlers read the current conversation from
   // this ref so switching conversations doesn't tear the connection down
-  // (each reconnect churned presence broadcasts to every friend).
+  // (each reconnect churned presence broadcasts to every friend). Same for
+  // the conversation list and our own login (to tell which side of a
+  // message is the peer).
+  //
+  // These are synced in an effect, not assigned during render: a render can
+  // be thrown away or replayed, and writing a ref from one is a side effect
+  // React makes no promises about. Socket handlers only fire after commit,
+  // so they always observe the synced value.
   const activePeerRef = useRef<string | null>(activePeer);
-  activePeerRef.current = activePeer;
-  // Same pattern for the data the once-connected socket handlers need:
-  // the current conversation list (updated in place per message) and our
-  // own login (to tell which side of a message is the peer).
   const conversationsRef = useRef<Conversation[] | null>(conversations);
-  conversationsRef.current = conversations;
   const myLoginRef = useRef<string | undefined>(user?.login);
-  myLoginRef.current = user?.login;
   const lastTypingSentRef = useRef(0);
+  // Timer that clears the peer's "TYPING..." line. Held so each new typing
+  // event can cancel the previous one: unmanaged, the timer armed at t+0 fired
+  // at t+3 and blanked an indicator that a t+2 event had just refreshed, so a
+  // peer who kept typing flickered. Also cleared on unmount, which is what
+  // stops the callback setting state on a panel that is gone.
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    activePeerRef.current = activePeer;
+  }, [activePeer]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+  useEffect(() => {
+    myLoginRef.current = user?.login;
+  }, [user?.login]);
 
   // Apply a message to the conversation list; one fallback fetch only when
   // the peer isn't in the list yet (their displayName/avatar are unknown).
@@ -133,10 +139,13 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     });
 
     socket.on("chat:typing", ({ senderLogin }: { senderLogin: string }) => {
-      if (senderLogin === activePeerRef.current) {
-        setTyping(true);
-        setTimeout(() => setTyping(false), 3000);
-      }
+      if (senderLogin !== activePeerRef.current) return;
+      setTyping(true);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        typingTimerRef.current = null;
+        setTyping(false);
+      }, 3000);
     });
 
     socket.on("chat:read-receipt", ({ readerLogin }: { readerLogin: string }) => {
@@ -157,24 +166,52 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
     };
   }, [upsertConversation]);
 
-  // Load history when activePeer changes
+  // Switching threads clears the old messages and drops the peer's unread
+  // badge (opening a thread reads it). Done while rendering, not in an
+  // effect: an effect would leave the previous conversation's messages on
+  // screen under the new peer's name until the history request came back.
+  const [shownPeer, setShownPeer] = useState(activePeer);
+  if (shownPeer !== activePeer) {
+    setShownPeer(activePeer);
+    setMessages([]);
+    // The old peer's "TYPING..." must not carry over onto the new thread. A
+    // timer still pending from them only sets this false again — harmless.
+    setTyping(false);
+    if (activePeer) {
+      setConversations((prev) =>
+        prev
+          ? prev.map((c) =>
+              c.peerLogin === activePeer ? { ...c, unreadCount: 0 } : c,
+            )
+          : prev,
+      );
+    }
+  }
+
+  // Load history when activePeer changes.
   useEffect(() => {
     if (!activePeer) return;
-    setMessages([]);
-    // Opening a thread reads it — clear its unread badge locally too.
-    setConversations((prev) =>
-      prev ? prev.map((c) => (c.peerLogin === activePeer ? { ...c, unreadCount: 0 } : c)) : prev,
-    );
+    let cancelled = false;
     fetchHistory(activePeer)
       .then((h) => {
+        if (cancelled) return;
         setMessages([...h.messages].reverse());
         // Mark as read
         socketRef.current?.emit("chat:read", { senderLogin: activePeer });
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activePeer]);
 
   // Push the unread total to the NotificationProvider's badge whenever the
@@ -208,7 +245,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
         }
       },
     );
-  }, [input, activePeer]);
+  }, [input, activePeer, upsertConversation]);
 
   const handleTyping = useCallback(() => {
     if (!activePeer) return;

@@ -55,9 +55,7 @@ type MoveAck = { ok: true } | { ok: false; reason: string };
   maxHttpBufferSize: 1e4,
   transports: ['websocket'],
 })
-export class SocialGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+export class SocialGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(SocialGateway.name);
 
   @WebSocketServer()
@@ -92,12 +90,16 @@ export class SocialGateway
     client.data.userId = userId;
     client.data.ip = ip;
 
+    // Join a room named after the user. Every emit to this user then costs a
+    // room lookup instead of a scan of every socket in the namespace, and
+    // "all of this user's tabs" is expressed by the room itself.
+    await client.join(userId);
+
     // Register in PresenceService (shared with chat gateway)
-    this.presence.connect(userId, client.id);
+    const cameOnline = this.presence.connect(userId, client.id);
     this.logger.log(`user ${payload.login} connected to social`);
 
-    // Broadcast presence:update to online friends
-    await this.broadcastPresence(userId, true);
+    if (cameOnline) await this.broadcastPresence(userId, true);
   }
 
   handleDisconnect(client: Socket): void {
@@ -106,12 +108,7 @@ export class SocialGateway
     if (!userId) return;
     if (ip) this.rateLimiter.release('social', ip);
 
-    const wasOnline = this.presence.isOnline(userId);
-    this.presence.disconnect(userId, client.id);
-    const isStillOnline = this.presence.isOnline(userId);
-
-    // Only broadcast offline if this was the last connection
-    if (wasOnline && !isStillOnline) {
+    if (this.presence.disconnect(userId, client.id)) {
       this.logger.log(`user ${userId} went offline`);
       void this.broadcastPresence(userId, false);
     }
@@ -128,7 +125,10 @@ export class SocialGateway
   @SubscribeMessage('social:state')
   async handleState(
     @ConnectedSocket() client: Socket,
-  ): Promise<{ ok: true; data: { onlineFriendIds: string[]; pendingRequests: number } } | MoveAck> {
+  ): Promise<
+    | { ok: true; data: { onlineFriendIds: string[]; pendingRequests: number } }
+    | MoveAck
+  > {
     const userId = (client.data as { userId?: string }).userId;
     if (!userId) return { ok: false, reason: 'not authenticated' };
 
@@ -153,17 +153,22 @@ export class SocialGateway
    * request id the client needs for accept/reject — so the friends page can
    * append it locally without a REST re-fetch.
    */
-  async notifyFriendRequest(
+  notifyFriendRequest(
     addresseeId: string,
     request: FriendRequestResponse,
-  ): Promise<void> {
-    const sockets = await this.server.fetchSockets();
-    for (const s of sockets) {
-      const data = s.data as { userId?: string };
-      if (data.userId === addresseeId) {
-        this.server.to(s.id).emit('friends:request', { request });
-      }
-    }
+  ): void {
+    this.server.to(addresseeId).emit('friends:request', { request });
+  }
+
+  /**
+   * Notify a requester that their outgoing request was turned down.
+   *
+   * Rejection deletes the row, so without this the request simply vanished
+   * server-side while the sender's list kept showing it as pending until they
+   * happened to reload. Only the id travels — the client just drops that entry.
+   */
+  notifyFriendReject(requesterId: string, requestId: number): void {
+    this.server.to(requesterId).emit('friends:reject', { requestId });
   }
 
   /**
@@ -172,33 +177,26 @@ export class SocialGateway
    * acceptor as a full GET /friends entry, so the client can insert them
    * into its friends list without a REST re-fetch.
    */
-  async notifyFriendAccept(
-    requesterId: string,
-    friend: FriendResponse,
-  ): Promise<void> {
-    const sockets = await this.server.fetchSockets();
-    for (const s of sockets) {
-      const data = s.data as { userId?: string };
-      if (data.userId === requesterId) {
-        this.server.to(s.id).emit('friends:accept', { friend });
-      }
-    }
+  notifyFriendAccept(requesterId: string, friend: FriendResponse): void {
+    this.server.to(requesterId).emit('friends:accept', { friend });
   }
 
   /**
-   * Broadcast presence:update to all online friends of the user.
+   * Broadcast presence:update to every friend of the user.
+   *
+   * Public because the chat gateway delegates here rather than emitting on its
+   * own namespace: only /social clients listen for presence, so a second copy
+   * on /chat was fanned out to nobody.
+   *
+   * `to()` takes the friend ids as rooms directly — offline friends simply
+   * have no room, and socket.io de-duplicates a recipient that matches more
+   * than one room. The guard matters: `to([])` addresses no room at all,
+   * which is a broadcast to the entire namespace.
    */
-  private async broadcastPresence(userId: string, online: boolean): Promise<void> {
+  async broadcastPresence(userId: string, online: boolean): Promise<void> {
     const friendIds = await this.friends.getFriendIds(userId);
     if (friendIds.length === 0) return;
-
-    const sockets = await this.server.fetchSockets();
-    for (const s of sockets) {
-      const data = s.data as { userId?: string };
-      if (data.userId && friendIds.includes(data.userId)) {
-        this.server.to(s.id).emit('presence:update', { userId, online });
-      }
-    }
+    this.server.to(friendIds).emit('presence:update', { userId, online });
   }
 
   /**
@@ -210,13 +208,6 @@ export class SocialGateway
   async notifyProfileUpdate(userId: string): Promise<void> {
     const friendIds = await this.friends.getFriendIds(userId);
     if (friendIds.length === 0) return;
-
-    const sockets = await this.server.fetchSockets();
-    for (const s of sockets) {
-      const data = s.data as { userId?: string };
-      if (data.userId && friendIds.includes(data.userId)) {
-        this.server.to(s.id).emit('profile:update', { userId });
-      }
-    }
+    this.server.to(friendIds).emit('profile:update', { userId });
   }
 }

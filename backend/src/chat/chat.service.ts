@@ -193,7 +193,8 @@ export class ChatService {
 
     // Sort by last message time, newest first.
     conversations.sort(
-      (a, b) => b.lastMessage.createdAt.getTime() - a.lastMessage.createdAt.getTime(),
+      (a, b) =>
+        b.lastMessage.createdAt.getTime() - a.lastMessage.createdAt.getTime(),
     );
     return conversations;
   }
@@ -232,7 +233,9 @@ export class ChatService {
       select: { id: true },
     });
     if (!friendship) {
-      throw new ForbiddenException('you can only view history with your friends');
+      throw new ForbiddenException(
+        'you can only view history with your friends',
+      );
     }
 
     const messages = await this.prisma.message.findMany({
@@ -341,26 +344,5 @@ export class ChatService {
       select: { login: true },
     });
     return { peerId: peer.id, myLogin: me.login };
-  }
-
-  /**
-   * Get the user IDs of a user's accepted friends (for presence broadcasts).
-   * Used by the chat gateway to know who to notify when a user comes online
-   * or goes offline.
-   */
-  async getFriendIds(userId: string): Promise<string[]> {
-    const friendships = await this.prisma.friendship.findMany({
-      where: {
-        status: 'ACCEPTED',
-        OR: [{ requesterId: userId }, { addresseeId: userId }],
-      },
-      select: {
-        requesterId: true,
-        addresseeId: true,
-      },
-    });
-    return friendships.map((f) =>
-      f.requesterId === userId ? f.addresseeId : f.requesterId,
-    );
   }
 }

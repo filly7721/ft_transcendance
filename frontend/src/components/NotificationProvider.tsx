@@ -1,14 +1,41 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { io, type Socket } from "socket.io-client";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { io } from "socket.io-client";
 import { getToken } from "@/lib/auth-storage";
 import { fetchFriendRequests } from "@/lib/friends";
 import { apiFetch } from "@/lib/api";
-import { useBfcache } from "@/lib/useBfcache";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 const SOCIAL_WS = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/social`;
+
+/** Badge counts, as read from REST. */
+type Counts = { requests: number; unread: number };
+
+/** Nothing online. A module constant so the logged-out reset below hands
+ *  back the same Set every time instead of a fresh one per render. */
+const NO_ONE_ONLINE: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Fetch the badge counts. Deliberately returns them instead of writing state:
+ * an effect may not call a function that sets state (it cascades renders), but
+ * it may set state from a promise callback. Keeping the fetch state-free is
+ * what lets both the effect and `refresh` below use it.
+ */
+async function fetchCounts(): Promise<Counts> {
+  const [reqs, convs] = await Promise.all([
+    fetchFriendRequests(),
+    apiFetch<{ peerLogin: string; unreadCount: number }[]>(
+      "/chat/conversations",
+    ).catch(() => []),
+  ]);
+  return {
+    requests: reqs.incoming.length,
+    unread: Array.isArray(convs)
+      ? convs.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
+      : 0,
+  };
+}
 
 type NotificationState = {
   /** Pending incoming friend requests count. */
@@ -42,6 +69,7 @@ const NotificationContext = createContext<NotificationState | null>(null);
  * its own WS connection:
  *   - "friends:request"  — { detail: { request } } a new friend request was received
  *   - "friends:accept"   — { detail: { friend } } your outgoing request was accepted
+ *   - "friends:reject"   — { detail: { requestId } } your outgoing request was declined
  *   - "presence:update"  — a friend came online or went offline { detail: { userId, online } }
  */
 export default function NotificationProvider({ children }: { children: React.ReactNode }) {
@@ -52,79 +80,68 @@ export default function NotificationProvider({ children }: { children: React.Rea
   const [friendRequestCount, setFriendRequestCount] = useState(0);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [onlineFriendIds, setOnlineFriendIds] = useState<Set<string>>(new Set());
-  const socketRef = useRef<Socket | null>(null);
 
-  // Gracefully disconnect/reconnect the social socket on bfcache freeze/restore.
-  useBfcache(socketRef, () => {
-    const token = getToken();
-    if (!token) return;
-    const s = io(SOCIAL_WS, { auth: { token }, transports: ["websocket"] });
-    socketRef.current = s;
-    // Re-attach handlers by reloading the page state
-    s.on("connect", () => {
-      s.emit("social:state", {}, (ack: { ok: boolean; data?: { onlineFriends: string[]; pendingRequests: number } }) => {
-        if (ack.ok && ack.data) {
-          setOnlineFriendIds(new Set(ack.data.onlineFriends));
-          setFriendRequestCount(ack.data.pendingRequests);
-        }
-      });
-    });
-    s.on("presence:update", ({ userId, online }: { userId: string; online: boolean }) => {
-      setOnlineFriendIds((prev) => {
-        const next = new Set(prev);
-        if (online) next.add(userId); else next.delete(userId);
-        return next;
-      });
-      window.dispatchEvent(new CustomEvent("presence:update", { detail: { userId, online } }));
-    });
-    s.on("friends:request", () => {
-      setFriendRequestCount((prev) => prev + 1);
-      refresh();
-      window.dispatchEvent(new CustomEvent("friends:request"));
-    });
-    s.on("friends:accept", () => { refresh(); window.dispatchEvent(new CustomEvent("friends:accept")); });
-    s.on("profile:update", () => { window.dispatchEvent(new CustomEvent("profile:update")); });
-  });
-
-  const refresh = useCallback(async () => {
-    const token = getToken();
-    if (!token) return;
-    try {
-      const [reqs, convs] = await Promise.all([
-        fetchFriendRequests(),
-        apiFetch<{ peerLogin: string; unreadCount: number }[]>("/chat/conversations").catch(() => []),
-      ]);
-      setFriendRequestCount(reqs.incoming.length);
-      setUnreadChatCount(
-        Array.isArray(convs) ? convs.reduce((sum, c) => sum + (c.unreadCount || 0), 0) : 0,
-      );
-    } catch {
-      // ignore — will retry
-    }
+  const applyCounts = useCallback((counts: Counts) => {
+    setFriendRequestCount(counts.requests);
+    setUnreadChatCount(counts.unread);
   }, []);
+
+  /** Exposed on the context so consumers can force a re-read after an action
+   *  (accepting a request, say). Effects use the fetch + apply pair directly. */
+  const refresh = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      applyCounts(await fetchCounts());
+    } catch {
+      // ignore — the 30s poll below will retry
+    }
+  }, [applyCounts]);
+
+  // Logging out clears the badges. Done while rendering rather than in an
+  // effect: this is state derived from a change in `status`, and an effect
+  // would render the stale counts once before blanking them.
+  const [prevStatus, setPrevStatus] = useState(status);
+  if (status !== prevStatus) {
+    setPrevStatus(status);
+    if (status !== "authenticated") {
+      setFriendRequestCount(0);
+      setUnreadChatCount(0);
+      setOnlineFriendIds(NO_ONE_ONLINE as Set<string>);
+    }
+  }
 
   // Initial REST load — re-runs when the user logs in mid-session.
   useEffect(() => {
-    if (status !== "authenticated") return;
-    refresh();
-  }, [refresh, status]);
+    if (status !== "authenticated" || !getToken()) return;
+    let cancelled = false;
+    fetchCounts()
+      .then((counts) => {
+        if (!cancelled) applyCounts(counts);
+      })
+      .catch(() => {
+        // ignore — the 30s poll below will retry
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applyCounts, status]);
 
   // WS connection for real-time updates. Depends on auth status: logging in
   // opens the socket right away (before this fix, a freshly logged-in user
   // was invisible to friends until they hard-refreshed the page), and
   // logging out closes it (stops appearing online) and clears the badges.
   useEffect(() => {
-    if (status !== "authenticated") {
-      setFriendRequestCount(0);
-      setUnreadChatCount(0);
-      setOnlineFriendIds(new Set());
-      return;
-    }
-    const token = getToken();
-    if (!token) return;
+    // The badge reset for this case happens during render, above.
+    if (status !== "authenticated" || !getToken()) return;
 
+    // socket.io reconnects on its own (network blips, a backend restart, the
+    // freeze a page takes on entering the back/forward cache). Handlers are
+    // registered on this Socket instance, so they survive those reconnects —
+    // rebuilding the socket by hand would silently drop them. `auth` is a
+    // callback rather than a literal so each attempt re-reads the token
+    // instead of replaying whatever was in storage at mount.
     const s = io(SOCIAL_WS, {
-      auth: { token },
+      auth: (cb) => cb({ token: getToken() }),
       transports: ["websocket"],
     });
 
@@ -162,6 +179,12 @@ export default function NotificationProvider({ children }: { children: React.Rea
       // Someone accepted OUR request — incoming count is unaffected.
       // Forward the new friend so the friends page can insert them locally.
       window.dispatchEvent(new CustomEvent("friends:accept", { detail: payload }));
+    });
+
+    s.on("friends:reject", (payload: { requestId: number }) => {
+      // Someone turned OUR request down. Incoming count is unaffected; the
+      // friends page drops the entry from its outgoing list.
+      window.dispatchEvent(new CustomEvent("friends:reject", { detail: payload }));
     });
 
     s.on("profile:update", () => {

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { SocialModule } from '../social/social.module';
 import { ChatController } from './chat.controller';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
@@ -16,11 +17,15 @@ import { ChatService } from './chat.service';
  * The ChatGateway uses:
  *   - JwtService: to verify tokens on WS connection
  *   - ChatService: to persist messages and fetch history
- *   - PresenceService: to track online status and broadcast presence updates
+ *   - PresenceService: to track online status
  *   - WsRateLimiter: to cap concurrent connections per IP
+ *   - SocialGateway: to broadcast presence changes. A /chat connection makes
+ *     its user online, but only /social clients listen for presence — so the
+ *     broadcast is delegated there instead of duplicated on this namespace.
+ *     Not a cycle: SocialModule does not import ChatModule.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, SocialModule],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],
   exports: [ChatService],
