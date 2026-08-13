@@ -17,15 +17,36 @@ export default function ProfilePage({ params }: { params: Promise<{ login: strin
 
   const isOwnProfile = user?.login === login;
 
-  useEffect(() => {
+  // Navigating straight from one profile to another reuses this component, so
+  // the previously loaded profile has to be cleared or it shows under the new
+  // name until the fetch lands. Done while rendering, not in an effect: an
+  // effect would paint the wrong person's stats for a frame first.
+  const [shownLogin, setShownLogin] = useState(login);
+  if (shownLogin !== login) {
+    setShownLogin(login);
     setProfile(null);
     setError(null);
+    setIsFriend(false);
+  }
+
+  useEffect(() => {
+    // `cancelled` guards against the slower of two overlapping loads landing
+    // last and showing the profile the user already navigated away from.
+    let cancelled = false;
     Promise.all([fetchPublicProfile(login), fetchFriends()])
       .then(([p, friends]) => {
+        if (cancelled) return;
         setProfile(p);
         setIsFriend(friends.some((f: Friend) => f.login === login));
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "failed to load profile"));
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "failed to load profile");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [login]);
 
   async function handleAddFriend() {

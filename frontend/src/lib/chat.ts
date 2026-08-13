@@ -54,15 +54,16 @@ const WS_URL = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/ch
 /**
  * Create a socket.io connection to the /chat namespace.
  *
- * The token is read from localStorage at connection time. If there's no
- * token, the socket will be rejected by the server (chat:error unauthorized).
+ * The token is read from localStorage on every connection attempt — as a
+ * callback rather than a literal, so socket.io's automatic reconnects pick
+ * up a reissued token instead of replaying a stale one. Without a token the
+ * server rejects the socket (chat:error unauthorized).
  *
  * @returns A connected socket (or a socket that will connect when auth is available).
  */
 export function createChatSocket(): Socket {
-  const token = getToken();
   return io(WS_URL, {
-    auth: { token },
+    auth: (cb) => cb({ token: getToken() }),
     transports: ["websocket"],
   });
 }

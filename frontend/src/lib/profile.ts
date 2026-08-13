@@ -1,5 +1,6 @@
 // Profile API calls. Mirrors the backend's ProfileController endpoints.
 import { apiFetch } from "./api";
+import { getToken } from "./auth-storage";
 
 export type PublicProfile = {
   id: string;
@@ -67,6 +68,3 @@ export async function uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
 
   return res.json();
 }
-
-// Import getToken here to avoid circular deps
-import { getToken } from "./auth-storage";
