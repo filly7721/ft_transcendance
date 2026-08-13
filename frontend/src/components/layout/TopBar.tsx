@@ -5,10 +5,6 @@ import UserMenu from "./UserMenu";
 import { useNotifications } from "@/components/NotificationProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-const topLinks = [
-  { href: "/faq", label: "FAQ" },
-];
-
 export default function TopBar() {
   const { friendRequestCount, unreadChatCount } = useNotifications();
   const { status } = useAuth();
@@ -24,16 +20,6 @@ export default function TopBar() {
         </Link>
 
         <nav className="flex items-center gap-6">
-          {topLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-xs font-mono uppercase tracking-widest text-arcade-muted transition-colors hover:text-neon-cyan"
-            >
-              {link.label}
-            </Link>
-          ))}
-
           {showBadges && (
             <>
               <Link

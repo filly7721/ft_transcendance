@@ -21,3 +21,5 @@ backend/uploads/
 health-check.js
 
 extras/
+# macOS finder metadata
+.DS_Store
