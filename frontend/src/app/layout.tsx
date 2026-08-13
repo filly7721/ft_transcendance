@@ -6,7 +6,16 @@ import Footer from "@/components/layout/Footer";
 import AuthProvider from "@/components/auth/AuthProvider";
 import NotificationProvider from "@/components/NotificationProvider";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+// Kept available as `font-sans` / `--font-geist-sans`, but not preloaded:
+// nothing renders in it today, so the browser fetched the file on every page
+// load and then reported an unused preload. Without the preload it costs
+// nothing until something actually asks for it — at which point it loads
+// normally, and preloading is worth reconsidering.
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+  preload: false,
+});
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 const pressStart = Press_Start_2P({
   weight: "400",
