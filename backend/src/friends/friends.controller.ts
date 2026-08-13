@@ -3,6 +3,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -24,6 +25,9 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
  * - `DELETE /friends/:login`          -> unfriend (10/min/IP)
  * - `GET    /friends`                 -> list accepted friends + online status (30/min/IP)
  * - `GET    /friends/requests`        -> list pending requests (incoming + outgoing) (30/min/IP)
+ * - `GET    /friends/blocked`         -> list users you have blocked (30/min/IP)
+ * - `POST   /friends/block/:login`    -> block a user (10/min/IP)
+ * - `DELETE /friends/block/:login`    -> lift your block (10/min/IP)
  */
 @Controller('friends')
 @UseGuards(JwtAuthGuard)
@@ -40,22 +44,44 @@ export class FriendsController {
     return this.friends.sendRequest(user.id, login);
   }
 
+  // ParseIntPipe rejects garbage like /accept/abc with a 400. Plain
+  // Number() would hand Prisma a NaN, which it answers with a
+  // PrismaClientValidationError — a class PrismaExceptionFilter does not
+  // catch, so the request died as an unhandled 500.
   @Post('accept/:id')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   acceptRequest(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.friends.acceptRequest(user.id, Number(id));
+    return this.friends.acceptRequest(user.id, id);
   }
 
   @Post('reject/:id')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   rejectRequest(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.friends.rejectRequest(user.id, Number(id));
+    return this.friends.rejectRequest(user.id, id);
+  }
+
+  @Post('block/:login')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  block(@CurrentUser() user: AuthenticatedUser, @Param('login') login: string) {
+    return this.friends.block(user.id, login);
+  }
+
+  // Declared BEFORE `@Delete(':login')`: Nest matches routes in declaration
+  // order, so the wildcard below would otherwise swallow /friends/block/x and
+  // try to unfriend a user called "block".
+  @Delete('block/:login')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  unblock(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('login') login: string,
+  ) {
+    return this.friends.unblock(user.id, login);
   }
 
   @Delete(':login')
@@ -77,5 +103,11 @@ export class FriendsController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   listRequests(@CurrentUser() user: AuthenticatedUser) {
     return this.friends.listRequests(user.id);
+  }
+
+  @Get('blocked')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  listBlocked(@CurrentUser() user: AuthenticatedUser) {
+    return this.friends.listBlocked(user.id);
   }
 }

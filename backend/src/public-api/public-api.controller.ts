@@ -75,10 +75,14 @@ export class PublicApiController {
     summary: 'List open lobbies',
     description:
       'Lobbies still waiting for players, newest first. Full lobbies and ' +
-      'in-progress games are not listed.',
+      'in-progress games are not listed, nor are lobbies hosted by someone ' +
+      'the key owner has blocked or been blocked by.',
   })
-  listLobbies(@Query('game') game?: string) {
-    return this.lobbies.list(game ?? '');
+  listLobbies(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('game') game?: string,
+  ) {
+    return this.lobbies.list(game ?? '', user.id);
   }
 
   @Post('lobbies')

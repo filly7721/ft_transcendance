@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FriendsService } from '../friends/friends.service';
 import { CreateLobbyDto } from './dto/create-lobby.dto';
 import { UpdateLobbyDto } from './dto/update-lobby.dto';
 import type { LobbyResponse } from './dto/lobby-response';
@@ -39,12 +40,28 @@ const MAX_CODE_RETRIES = 10;
  */
 @Injectable()
 export class LobbiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly friends: FriendsService,
+  ) {}
 
-  /** List open (WAITING, not full) lobbies for a game, newest first. */
-  async list(game: string): Promise<LobbyResponse[]> {
+  /**
+   * List open (WAITING, not full) lobbies for a game, newest first.
+   *
+   * Lobbies hosted by someone on either side of a block with `viewerId` are
+   * left out. Both sides of the block, deliberately: the person who blocked
+   * should not have to look at the other's rooms, and the person who was
+   * blocked should not be able to walk into theirs.
+   */
+  async list(game: string, viewerId: string): Promise<LobbyResponse[]> {
+    const blockedIds = await this.friends.getBlockedUserIds(viewerId);
+
     const lobbies = await this.prisma.lobby.findMany({
-      where: { game, status: LOBBY_STATUS_WAITING },
+      where: {
+        game,
+        status: LOBBY_STATUS_WAITING,
+        ...(blockedIds.length > 0 ? { hostId: { notIn: blockedIds } } : {}),
+      },
       include: { members: true, host: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -105,6 +122,15 @@ export class LobbiesService {
       include: { members: true, host: true },
     });
     if (!lobby) {
+      throw new NotFoundException('lobby not found');
+    }
+
+    // Hiding a blocked host's lobby from the browser is not enough on its own
+    // — the room code is all `join` needs, and codes travel by other routes
+    // (a shared link, a code seen before the block). 404 rather than 403: the
+    // lobby is simply not there for this caller, and saying "you are blocked"
+    // would confirm the room exists and out the person who blocked them.
+    if (await this.friends.isBlocked(userId, lobby.hostId)) {
       throw new NotFoundException('lobby not found');
     }
 
@@ -203,18 +229,35 @@ export class LobbiesService {
   }
 
   /**
-   * Does a lobby row exist for this code and game? The game gateways call
-   * this before opening a NEW in-memory room, so a made-up code (hand-typed
-   * URL, guessed code) can't fabricate a working game room. Already-live
-   * rooms are still served from memory, so mid-game resumes survive even
-   * if the row has since been cleaned up.
+   * May this user take a seat in this code's game room?
+   *
+   * Two conditions, both required: a lobby row exists for that code and
+   * game, and the user is one of its members.
+   *
+   * The membership half matters because `POST /lobbies/:id/join` is where
+   * capacity is enforced and the join is recorded — and it was entirely
+   * skippable. Room codes are handed out by `GET /lobbies`, which is
+   * public, so any account could read a code off the open-lobby list and
+   * connect the game socket straight to it, seating themselves in a room
+   * they never joined.
+   *
+   * The gateways only call this for a caller who does NOT already hold a
+   * seat, so mid-game resumes still survive the lobby row being cleaned up
+   * underneath a running game.
    */
-  async existsForGame(roomCode: string, game: string): Promise<boolean> {
+  async canJoinGame(
+    roomCode: string,
+    game: string,
+    userId: string,
+  ): Promise<boolean> {
     const row = await this.prisma.lobby.findUnique({
       where: { id: roomCode },
-      select: { game: true },
+      select: {
+        game: true,
+        members: { where: { userId }, select: { id: true }, take: 1 },
+      },
     });
-    return row?.game === game;
+    return row?.game === game && row.members.length > 0;
   }
 
   /**

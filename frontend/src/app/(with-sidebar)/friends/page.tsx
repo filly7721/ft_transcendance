@@ -6,33 +6,62 @@ import { FriendAvatar } from "@/components/profile/FriendAvatar";
 import {
   fetchFriends,
   fetchFriendRequests,
+  fetchBlocked,
   sendFriendRequest,
   acceptFriendRequest,
   rejectFriendRequest,
   unfriend,
+  blockUser,
+  unblockUser,
+  type BlockedUser,
   type Friend,
   type FriendRequest,
   type FriendRequestsResponse,
 } from "@/lib/friends";
 import { useNotifications } from "@/components/NotificationProvider";
 
+/** All three lists in one round trip. State-free on purpose — see `reload` below. */
+function fetchLists(): Promise<[Friend[], FriendRequestsResponse, BlockedUser[]]> {
+  return Promise.all([fetchFriends(), fetchFriendRequests(), fetchBlocked()]);
+}
+
 export default function FriendsPage() {
   const { onlineFriendIds, refresh } = useNotifications();
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [requests, setRequests] = useState<FriendRequestsResponse | null>(null);
+  const [blocked, setBlocked] = useState<BlockedUser[] | null>(null);
   const [searchLogin, setSearchLogin] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const applyLists = useCallback(
+    ([f, r, b]: [Friend[], FriendRequestsResponse, BlockedUser[]]) => {
+      setFriends(f);
+      setRequests(r);
+      setBlocked(b);
+    },
+    [],
+  );
+
+  /** Re-read both lists after an action. Effects use fetchLists + applyLists
+   *  directly instead: an effect may not call a function that sets state. */
   const reload = useCallback(async () => {
-    const [f, r] = await Promise.all([fetchFriends(), fetchFriendRequests()]);
-    setFriends(f);
-    setRequests(r);
-  }, []);
+    applyLists(await fetchLists());
+  }, [applyLists]);
 
   useEffect(() => {
-    reload().catch((e) => setError(e.message));
-  }, [reload]);
+    let cancelled = false;
+    fetchLists()
+      .then((lists) => {
+        if (!cancelled) applyLists(lists);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applyLists]);
 
   // Listen for real-time events: friend request received / accepted / presence
   // change. The event payloads carry the full data (see NotificationProvider),
@@ -64,16 +93,27 @@ export default function FriendsPage() {
         prev ? prev.map((f) => (f.id === detail.userId ? { ...f, online: detail.online } : f)) : prev,
       );
     };
+    const handleFriendReject = (e: Event) => {
+      const requestId = (e as CustomEvent<{ requestId: number }>).detail?.requestId;
+      if (typeof requestId !== "number") return;
+      // They turned us down. The row is gone server-side; drop it here too so
+      // the entry stops sitting in "Outgoing / PENDING" until a reload.
+      setRequests((prev) =>
+        prev ? { ...prev, outgoing: prev.outgoing.filter((r) => r.id !== requestId) } : prev,
+      );
+    };
     const handleProfileUpdate = () => { reload(); };
 
     window.addEventListener("friends:request", handleFriendRequest);
     window.addEventListener("friends:accept", handleFriendAccept);
+    window.addEventListener("friends:reject", handleFriendReject);
     window.addEventListener("presence:update", handlePresence);
     window.addEventListener("profile:update", handleProfileUpdate);
 
     return () => {
       window.removeEventListener("friends:request", handleFriendRequest);
       window.removeEventListener("friends:accept", handleFriendAccept);
+      window.removeEventListener("friends:reject", handleFriendReject);
       window.removeEventListener("presence:update", handlePresence);
       window.removeEventListener("profile:update", handleProfileUpdate);
     };
@@ -106,6 +146,40 @@ export default function FriendsPage() {
     try { await unfriend(login); await reload(); } catch (e) { setError(e instanceof Error ? e.message : "failed"); }
   }
 
+  async function handleBlock(login: string) {
+    if (
+      !confirm(
+        `Block ${login}?\n\nThey will be removed from your friends, neither of you can message the other, and you will not see each other's lobbies.`,
+      )
+    ) {
+      return;
+    }
+    setNotice(null);
+    setError(null);
+    // reload() covers all three lists at once: blocking ends the friendship
+    // and any pending request, so friends, requests and blocked all move.
+    try {
+      const result = await blockUser(login);
+      setNotice(result.message);
+      await reload();
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to block");
+    }
+  }
+
+  async function handleUnblock(login: string) {
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await unblockUser(login);
+      setNotice(`${result.message} — you are not friends again, send a request to reconnect`);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to unblock");
+    }
+  }
+
   // Online status: the REST response's flag is correct at fetch time, and
   // onlineFriendIds layers real-time presence on top. Union of the two —
   // going offline is handled by handlePresence flipping f.online to false
@@ -136,6 +210,14 @@ export default function FriendsPage() {
                   <span className="flex-1 font-mono text-xs">{req.login}</span>
                   <Button onClick={() => handleAccept(req.id)}>ACCEPT</Button>
                   <Button onClick={() => handleReject(req.id)}>REJECT</Button>
+                  {/* Reject only clears this request — they can send another.
+                      Block is the one that makes it stop. */}
+                  <Button
+                    onClick={() => handleBlock(req.login)}
+                    className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]"
+                  >
+                    BLOCK
+                  </Button>
                 </div>
               ))}
             </div>
@@ -166,6 +248,12 @@ export default function FriendsPage() {
                   <a href={`/profile/${f.login}`} className="font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</a>
                   <a href={`/chat?peer=${f.login}`} className="font-mono text-[10px] text-neon-green hover:underline">MESSAGE</a>
                   <Button onClick={() => handleUnfriend(f.login)}>UNFRIEND</Button>
+                  <Button
+                    onClick={() => handleBlock(f.login)}
+                    className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]"
+                  >
+                    BLOCK
+                  </Button>
                 </div>
                 <div className="flex justify-around border-t border-arcade-border/50 pt-1">
                   <span className="font-mono text-[9px] text-arcade-muted">{f.stats?.gamesPlayed ?? 0} GAMES</span>
@@ -178,6 +266,34 @@ export default function FriendsPage() {
           </ul>
         )}
       </div>
+
+      {/* Only rendered when non-empty: an always-visible "BLOCKED (0)" heading
+          is noise for the overwhelming majority of accounts. */}
+      {blocked && blocked.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-1 font-arcade text-[10px] text-neon-red">BLOCKED</h2>
+          <p className="mb-3 font-mono text-[10px] text-arcade-muted">
+            You cannot message each other, and neither of you sees the other&apos;s lobbies.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {blocked.map((b) => (
+              <li
+                key={b.id}
+                className="flex items-center gap-3 border border-neon-red/30 bg-arcade-card p-2"
+              >
+                <FriendAvatar login={b.login} avatarUrl={b.avatarUrl} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-xs">{b.login}</p>
+                  <p className="truncate font-mono text-[10px] text-arcade-muted">
+                    Blocked {new Date(b.blockedAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <Button onClick={() => handleUnblock(b.login)}>UNBLOCK</Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

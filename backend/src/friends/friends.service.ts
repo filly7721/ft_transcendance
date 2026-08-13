@@ -55,6 +55,15 @@ export interface FriendRequestsResponse {
   outgoing: FriendRequestResponse[];
 }
 
+/** An entry in `GET /friends/blocked`. */
+export interface BlockedUserResponse {
+  id: string;
+  login: string;
+  displayName: string;
+  avatarUrl: string | null;
+  blockedAt: Date;
+}
+
 /**
  * Friends service — handles friend requests, acceptance, rejection, and
  * listing.
@@ -170,7 +179,9 @@ export class FriendsService {
       throw new NotFoundException(`friend request ${requestId} not found`);
     }
     if (friendship.addresseeId !== userId) {
-      throw new ForbiddenException('only the addressee can accept this request');
+      throw new ForbiddenException(
+        'only the addressee can accept this request',
+      );
     }
     if (friendship.status !== STATUS_PENDING) {
       throw new ConflictException(`request is already ${friendship.status}`);
@@ -228,18 +239,192 @@ export class FriendsService {
   ): Promise<{ message: string }> {
     const friendship = await this.prisma.friendship.findUnique({
       where: { id: requestId },
-      select: { id: true, addresseeId: true },
+      // requesterId is needed to tell the sender their request was turned down.
+      select: { id: true, addresseeId: true, requesterId: true },
     });
     if (!friendship) {
       throw new NotFoundException(`friend request ${requestId} not found`);
     }
     if (friendship.addresseeId !== userId) {
-      throw new ForbiddenException('only the addressee can reject this request');
+      throw new ForbiddenException(
+        'only the addressee can reject this request',
+      );
     }
 
     await this.prisma.friendship.delete({ where: { id: requestId } });
 
+    // Tell the sender, if they are connected. Rejection deletes the row, so
+    // without this their outgoing list kept the request until a page reload.
+    this.social.notifyFriendReject(friendship.requesterId, requestId);
+
     return { message: 'friend request rejected' };
+  }
+
+  /**
+   * Block a user.
+   *
+   * A block is a `BLOCKED` friendship row owned by the blocker
+   * (`requesterId` = whoever pressed the button). Blocking also *replaces*
+   * whatever relationship existed: an accepted friendship, a request either
+   * way, all of it goes, because blocking someone you are friends with has to
+   * end the friendship or the block does nothing.
+   *
+   * Blocks are one-directional rows but bidirectional in effect. Two rows can
+   * coexist — A blocking B and B blocking A are separate — which is why this
+   * only ever touches the caller's own direction. Deleting the other party's
+   * block here would let anyone clear a block on themselves by blocking back
+   * and then unblocking.
+   *
+   * What a block does, in practice:
+   *  - friend requests between the two are refused (`sendRequest` sees BLOCKED)
+   *  - messaging and history stop, since both require an ACCEPTED row
+   *  - typing indicators and read receipts stop, for the same reason
+   *  - neither side sees the other's lobbies, and neither can join them
+   *    (`LobbiesService`)
+   */
+  async block(
+    userId: string,
+    targetLogin: string,
+  ): Promise<{ message: string }> {
+    const target = await this.prisma.user.findUnique({
+      where: { login: targetLogin },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new NotFoundException(`user '${targetLogin}' not found`);
+    }
+    if (target.id === userId) {
+      throw new ConflictException('you cannot block yourself');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Drop the existing relationship in either direction, but never the
+      // other party's block on us.
+      await tx.friendship.deleteMany({
+        where: {
+          NOT: { status: STATUS_BLOCKED },
+          OR: [
+            { requesterId: userId, addresseeId: target.id },
+            { requesterId: target.id, addresseeId: userId },
+          ],
+        },
+      });
+      // Idempotent: blocking twice is not an error.
+      await tx.friendship.upsert({
+        where: {
+          requesterId_addresseeId: {
+            requesterId: userId,
+            addresseeId: target.id,
+          },
+        },
+        create: {
+          requesterId: userId,
+          addresseeId: target.id,
+          status: STATUS_BLOCKED,
+        },
+        update: { status: STATUS_BLOCKED },
+      });
+    });
+
+    return { message: `blocked ${targetLogin}` };
+  }
+
+  /**
+   * Lift a block you placed. Only removes the caller's own BLOCKED row, so a
+   * mutual block survives until both sides lift it.
+   *
+   * Unblocking does not restore a friendship — the pair go back to strangers
+   * and either can send a fresh request.
+   */
+  async unblock(
+    userId: string,
+    targetLogin: string,
+  ): Promise<{ message: string }> {
+    const target = await this.prisma.user.findUnique({
+      where: { login: targetLogin },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new NotFoundException(`user '${targetLogin}' not found`);
+    }
+
+    const { count } = await this.prisma.friendship.deleteMany({
+      where: {
+        requesterId: userId,
+        addresseeId: target.id,
+        status: STATUS_BLOCKED,
+      },
+    });
+    if (count === 0) {
+      throw new NotFoundException(`you have not blocked ${targetLogin}`);
+    }
+
+    return { message: `unblocked ${targetLogin}` };
+  }
+
+  /** The users this caller has blocked (not the ones who blocked them). */
+  async listBlocked(userId: string): Promise<BlockedUserResponse[]> {
+    const rows = await this.prisma.friendship.findMany({
+      where: { requesterId: userId, status: STATUS_BLOCKED },
+      select: {
+        createdAt: true,
+        addressee: {
+          select: { id: true, login: true, displayName: true, avatarUrl: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map((r) => ({
+      id: r.addressee.id,
+      login: r.addressee.login,
+      displayName: r.addressee.displayName,
+      avatarUrl: r.addressee.avatarUrl,
+      blockedAt: r.createdAt,
+    }));
+  }
+
+  /**
+   * True if either of these two users has blocked the other.
+   *
+   * The single-pair counterpart to `getBlockedUserIds`, for the paths that
+   * already know both parties (joining a specific lobby) and would otherwise
+   * pull a whole exclusion list to check one id against it.
+   */
+  async isBlocked(a: string, b: string): Promise<boolean> {
+    if (a === b) return false;
+    const row = await this.prisma.friendship.findFirst({
+      where: {
+        status: STATUS_BLOCKED,
+        OR: [
+          { requesterId: a, addresseeId: b },
+          { requesterId: b, addresseeId: a },
+        ],
+      },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
+  /**
+   * Every user id on either side of a block with this user — the ones they
+   * blocked AND the ones who blocked them.
+   *
+   * Both directions on purpose: hiding is symmetric. If you block someone you
+   * should not see their lobbies, and they should not see yours either, or
+   * blocking would just be a way to hide from someone while still watching
+   * them. Callers use this as an exclusion list.
+   */
+  async getBlockedUserIds(userId: string): Promise<string[]> {
+    const rows = await this.prisma.friendship.findMany({
+      where: {
+        status: STATUS_BLOCKED,
+        OR: [{ requesterId: userId }, { addresseeId: userId }],
+      },
+      select: { requesterId: true, addresseeId: true },
+    });
+    return rows.map((r) =>
+      r.requesterId === userId ? r.addresseeId : r.requesterId,
+    );
   }
 
   /**
@@ -315,13 +500,14 @@ export class FriendsService {
 
     // Batch-fetch game stats for all friends in one groupBy query.
     // Grouping by userId + result gives us counts per user per result type.
-    const statsRows = friendIds.length > 0
-      ? await this.prisma.gameResult.groupBy({
-          by: ['userId', 'result'],
-          where: { userId: { in: friendIds } },
-          _count: { result: true },
-        })
-      : [];
+    const statsRows =
+      friendIds.length > 0
+        ? await this.prisma.gameResult.groupBy({
+            by: ['userId', 'result'],
+            where: { userId: { in: friendIds } },
+            _count: { result: true },
+          })
+        : [];
 
     // Build a Map<userId, GameStats> from the grouped rows.
     const statsMap = new Map<string, GameStats>();
@@ -348,7 +534,12 @@ export class FriendsService {
         online: this.presence.isOnline(friend.id),
         friendshipId: f.id,
         friendsSince: f.updatedAt,
-        stats: statsMap.get(friend.id) ?? { gamesPlayed: 0, wins: 0, losses: 0, draws: 0 },
+        stats: statsMap.get(friend.id) ?? {
+          gamesPlayed: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+        },
       };
     });
   }
@@ -414,6 +605,8 @@ export class FriendsService {
       },
       select: { requesterId: true, addresseeId: true },
     });
-    return friendships.map((f) => (f.requesterId === userId ? f.addresseeId : f.requesterId));
+    return friendships.map((f) =>
+      f.requesterId === userId ? f.addresseeId : f.requesterId,
+    );
   }
 }

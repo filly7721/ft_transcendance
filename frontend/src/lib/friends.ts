@@ -55,3 +55,33 @@ export function rejectFriendRequest(id: number): Promise<{ message: string }> {
 export function unfriend(login: string): Promise<{ message: string }> {
   return apiFetch(`/friends/${encodeURIComponent(login)}`, { method: "DELETE" });
 }
+
+export type BlockedUser = {
+  id: string;
+  login: string;
+  displayName: string;
+  avatarUrl: string | null;
+  blockedAt: string;
+};
+
+export function fetchBlocked(): Promise<BlockedUser[]> {
+  return apiFetch<BlockedUser[]>("/friends/blocked");
+}
+
+/**
+ * Block a user. Ends any friendship or pending request between you, stops
+ * messages in both directions, and hides each of you from the other's lobby
+ * browser.
+ */
+export function blockUser(login: string): Promise<{ message: string }> {
+  return apiFetch(`/friends/block/${encodeURIComponent(login)}`, {
+    method: "POST",
+  });
+}
+
+/** Lift your own block. Does not restore the friendship. */
+export function unblockUser(login: string): Promise<{ message: string }> {
+  return apiFetch(`/friends/block/${encodeURIComponent(login)}`, {
+    method: "DELETE",
+  });
+}
