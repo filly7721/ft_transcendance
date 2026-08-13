@@ -1,18 +1,9 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  HttpCode,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -23,9 +14,11 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
  *
  * - `POST   /auth/register`        -> create an account, returns { user, accessToken }.
  * - `POST   /auth/login`           -> log in, returns { user, accessToken }.
- * - `POST   /auth/forgot-password` -> request a reset link (always 200).
- * - `POST   /auth/reset-password`  -> set a new password with a reset token.
  * - `DELETE /auth/account`         -> delete the current account (password required).
+ *
+ * There is deliberately no password-reset flow: it would need an email
+ * transport to be worth anything, and the half of it that existed (mint a
+ * token, never deliver it) only looked like a working feature.
  *
  * All routes are rate-limited to mitigate brute-force / abuse.
  */
@@ -43,20 +36,6 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 logins / min / IP
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
-  }
-
-  @Post('forgot-password')
-  @HttpCode(200) // action endpoint, not a resource creation
-  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 5 requests / min / IP
-  forgotPassword(@Body() dto: ForgotPasswordDto) {
-    return this.auth.forgotPassword(dto);
-  }
-
-  @Post('reset-password')
-  @HttpCode(200) // action endpoint, not a resource creation
-  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 resets / min / IP
-  resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.auth.resetPassword(dto);
   }
 
   @Delete('account')

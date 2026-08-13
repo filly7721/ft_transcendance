@@ -39,9 +39,6 @@ model User {
   /// Last-update timestamp, managed by Prisma.
   updatedAt    DateTime @updatedAt
 
-  /// Password-reset tokens issued for this user. Deleted with the user.
-  passwordResetTokens PasswordResetToken[]
-
   /// Lobbies this user is the host of (creator = host).
   hostedLobbies    Lobby[]        @relation("LobbyHost")
   /// Lobbies this user has joined (including ones they host).
@@ -68,8 +65,7 @@ model User {
 /// Keys are minted by a logged-in user and act on that user's behalf: a key
 /// can do what its owner can do, and nothing more. The raw key is shown to
 /// the caller EXACTLY ONCE, at creation; we only persist its SHA-256 hash,
-/// so a database leak cannot be replayed against the API (same reasoning as
-/// PasswordResetToken.tokenHash).
+/// so a database leak cannot be replayed against the API.
 ///
 /// `prefix` is the first few characters of the raw key, stored in the clear
 /// purely so the owner can tell their keys apart in a list ("arc_9f3c…") —
@@ -99,32 +95,6 @@ model ApiKey {
   @@map("api_keys")
 }
 
-/// A single-use password-reset token.
-///
-/// The token sent to the user (by email, or returned in dev mode) is a long
-/// random string. We only store its SHA-256 hash so a database leak cannot
-/// be used to reset passwords. Tokens expire (default 15 min) and are
-/// single-use (`usedAt` is set once consumed).
-model PasswordResetToken {
-  /// Auto-incremented primary key.
-  id        Int      @id @default(autoincrement())
-  /// The user this token belongs to (UUID FK → User.id).
-  userId    String
-  /// SHA-256 hash of the raw token. Looked up by this column on reset.
-  tokenHash String   @unique
-  /// When the token expires. Checked on reset; old tokens are ignored.
-  expiresAt DateTime
-  /// Set when the token is consumed. Null = not used yet.
-  usedAt    DateTime?
-  /// Creation timestamp.
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("password_reset_tokens")
-}
-
 /// A lobby room for a game. Created via `POST /lobbies`.
 ///
 /// The `id` IS the room code: 9 random digits in the format "xxx-xxx-xxx"
@@ -140,7 +110,10 @@ model Lobby {
   name        String
   /// User who created the lobby (the host). UUID FK → User.id.
   hostId      String
-  /// Maximum players the lobby accepts (2 or 4 per the frontend form).
+  /// Maximum players the lobby accepts. Always 2 today — every game is 1v1
+  /// and both gateways seat exactly two players (enforced in CreateLobbyDto).
+  /// Kept as a column rather than assumed, so a game that seats more than two
+  /// is a DTO change and not a migration.
   maxPlayers  Int
   /// JSON-stringified `Record<string,string>` of lobby options
   /// (e.g. `{"mode":"CASUAL"}`). Stored as text because SQLite has no native
@@ -156,7 +129,13 @@ model Lobby {
   updatedAt   DateTime @updatedAt
 
   /// The host (creator). Resolves to a User row.
-  host        User     @relation("LobbyHost", fields: [hostId], references: [id])
+  ///
+  /// Cascades like every other User relation: without it, deleting an account
+  /// that still hosts a lobby violated this foreign key, and `DELETE
+  /// /auth/account` answered 500. Dropping the host's lobbies with them is
+  /// right anyway — a lobby with no host is unjoinable, and its LobbyMember
+  /// rows cascade from the lobby in turn.
+  host        User     @relation("LobbyHost", fields: [hostId], references: [id], onDelete: Cascade)
   /// Everyone in the lobby, including the host (host is added as the first
   /// member on creation, so `players` starts at 1).
   members     LobbyMember[]
