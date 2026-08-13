@@ -10,6 +10,8 @@ import { markOf, type GameOverEvent } from "@/lib/superTttProtocol";
 import { useSuperTtt, type GamePhase } from "@/lib/useSuperTtt";
 import GameOverModal, { type GameOutcome } from "./GameOverModal";
 import GameStatusBar, { StatusCell } from "./GameStatusBar";
+import GameNotice from "./GameNotice";
+import { useRejection } from "./useRejection";
 
 // The playable super-tic-tac-toe game for one lobby. All game state lives in
 // the useSuperTtt hook: clicks are validated locally and sent to the server,
@@ -24,6 +26,7 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
     lastMove,
     result,
     notice,
+    rejection,
     sendMove,
   } = useSuperTtt(lobbyCode);
 
@@ -37,6 +40,22 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
   const [dismissed, setDismissed] = useState<GameOverEvent | null>(null);
   const end =
     result && result !== dismissed && myMark ? endOfGame(result, myMark) : null;
+
+  // A refused connection means there is no game here to draw — explain why
+  // rather than rendering an empty board, and leave a dead room behind.
+  const refusal = useRejection(
+    phase === "rejected" ? (rejection ?? "unknown") : null,
+    "super-tic-tac-toe",
+  );
+  if (refusal) {
+    return (
+      <GameNotice
+        game="super-tic-tac-toe"
+        title={refusal.title}
+        message={refusal.message}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-10">
@@ -151,12 +170,6 @@ function PhaseStatus({
       </>
     );
   }
-  if (phase === "rejected") {
-    return (
-      <div className="font-arcade text-xs text-arcade-muted">NOT CONNECTED</div>
-    );
-  }
-
   if (state.result !== null) {
     const youWon = state.result === myMark;
     return (

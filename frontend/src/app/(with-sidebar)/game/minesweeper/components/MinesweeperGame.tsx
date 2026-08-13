@@ -2,6 +2,8 @@
 import { useState } from "react";
 import GameStatusBar from "@/components/games/GameStatusBar";
 import GameOverModal, { type GameOutcome } from "@/components/games/GameOverModal";
+import GameNotice from "@/components/games/GameNotice";
+import { useRejection } from "@/components/games/useRejection";
 import { useMinesweeper, type MinesweeperGameState } from "../lib/useMinesweeper";
 import type { GameOverEvent } from "../lib/protocol";
 import MinesweeperBoard from "./MinesweeperBoard";
@@ -59,6 +61,23 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
   // different one, so its popup shows up rather than starting out dismissed.
   const [dismissed, setDismissed] = useState<GameOverEvent | null>(null);
   const end = game.result === dismissed ? null : endOfGame(game);
+
+  // A refused connection means there is no game here to draw. Rendering the
+  // boards anyway left two empty panels collapsed to the width of their
+  // labels; a bad room now explains itself and returns to the lobby.
+  const rejection = useRejection(
+    game.phase === "rejected" ? (game.rejection ?? "unknown") : null,
+    "minesweeper",
+  );
+  if (rejection) {
+    return (
+      <GameNotice
+        game="minesweeper"
+        title={rejection.title}
+        message={rejection.message}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-6">

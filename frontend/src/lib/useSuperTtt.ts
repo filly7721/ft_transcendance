@@ -56,6 +56,10 @@ export interface SuperTttGame {
   result: GameOverEvent | null;
   /** Last rejection or connection problem, for display. */
   notice: string | null;
+  /** Raw `game:error` reason when the connection was refused, else null.
+   *  Kept separate from `notice` so callers can branch on it (see
+   *  useRejection) instead of matching on prose. */
+  rejection: string | null;
   sendMove: (boardIdx: number, cellIdx: number) => void;
 }
 
@@ -74,6 +78,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
   const [lastMove, setLastMove] = useState<LastMove | null>(null);
   const [result, setResult] = useState<GameOverEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [rejection, setRejection] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   // Our seat, readable inside socket handlers without a stale closure.
   const seatRef = useRef<number | null>(null);
@@ -84,8 +89,11 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     // reused manager (SPA navigation, chat/social sockets on the same
     // origin) would silently resend the FIRST connection's query and drop
     // us into the wrong room.
+    //
+    // `auth` is a callback so socket.io's own reconnects re-read the token
+    // rather than replaying whatever was in storage when the effect ran.
     const socket = io(SOCKET_URL, {
-      auth: { token: getToken(), lobby: lobbyCode },
+      auth: (cb) => cb({ token: getToken(), lobby: lobbyCode }),
       transports: ["websocket"],
     });
     socketRef.current = socket;
@@ -125,6 +133,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     });
     socket.on("game:error", (event: { reason: string }) => {
       setPhase("rejected");
+      setRejection(event.reason);
       setNotice(ERROR_NOTICES[event.reason] ?? event.reason);
     });
     socket.on("connect_error", () => {
@@ -166,6 +175,7 @@ export function useSuperTtt(lobbyCode: string): SuperTttGame {
     lastMove,
     result,
     notice,
+    rejection,
     sendMove,
   };
 }
