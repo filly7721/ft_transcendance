@@ -27,11 +27,13 @@ type Props = {
 export default function CreateLobbyForm({ onCreate, onCancel }: Props) {
   const [name, setName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(2);
-  const [mode, setMode] = useState("CASUAL");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onCreate(name.trim() || "UNNAMED LOBBY", maxPlayers, { mode });
+    // Every lobby is casual — there is no ranked mode, and nothing reads this
+    // key yet. It stays in the options bag so existing lobbies keep the shape
+    // the browser already renders; drop it when something needs the room.
+    onCreate(name.trim() || "UNNAMED LOBBY", maxPlayers, { mode: "CASUAL" });
   }
 
   return (
@@ -59,12 +61,6 @@ export default function CreateLobbyForm({ onCreate, onCancel }: Props) {
           className={inputClasses}
         >
           <option value={2}>2</option>
-        </select>
-      </Row>
-      <Row label="Mode">
-        <select value={mode} onChange={(e) => setMode(e.target.value)} className={inputClasses}>
-          <option>CASUAL</option>
-          <option>RANKED</option>
         </select>
       </Row>
       {/* TODO: more lobby options land here (timers, board size, private + code…) */}

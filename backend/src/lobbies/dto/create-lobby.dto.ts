@@ -45,16 +45,24 @@ export class CreateLobbyDto {
   @MaxLength(50)
   name!: string;
 
-  /** Maximum number of players the lobby accepts (frontend offers 2 or 4). */
+  /**
+   * Maximum number of players the lobby accepts.
+   *
+   * Must be 2. Every game here is 1v1 and both gateways seat exactly two
+   * players, so a lobby created with 4 could never fill: the third connection
+   * was turned away with `lobby_full` no matter what the lobby advertised.
+   * Widen this the day a game seats more than two, and widen the gateways
+   * with it.
+   */
   @ApiProperty({
-    description: 'Player cap for the lobby.',
+    description: 'Player cap for the lobby. Must be 2 — every game is 1v1.',
     minimum: 2,
-    maximum: 4,
+    maximum: 2,
     example: 2,
   })
   @IsInt()
   @Min(2)
-  @Max(4)
+  @Max(2, { message: 'maxPlayers must be 2 — every game here is 1v1' })
   maxPlayers!: number;
 
   /** Open-ended key/value options bag (e.g. { mode: "CASUAL" }). */

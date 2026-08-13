@@ -34,10 +34,19 @@ export default function LobbySelector({ game }: Props) {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Switching games reuses this component, so the previous game's lobbies
+  // have to be cleared or they show under the new game's heading until the
+  // fetch lands. Done while rendering, not in an effect, so the wrong list is
+  // never painted even for a frame.
+  const [shownGame, setShownGame] = useState(game);
+  if (shownGame !== game) {
+    setShownGame(game);
     setLobbies(null);
     setStatus(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
     fetchLobbies(game)
       .then((result) => {
         if (!cancelled) setLobbies(result);

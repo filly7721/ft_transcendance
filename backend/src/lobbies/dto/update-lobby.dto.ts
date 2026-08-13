@@ -30,21 +30,21 @@ export class UpdateLobbyDto {
 
   @ApiPropertyOptional({
     description:
-      'New player cap. Cannot be lowered below the number of players ' +
-      'already in the lobby.',
+      'New player cap. Must be 2 — every game here is 1v1, and both ' +
+      'gateways seat exactly two players.',
     minimum: 2,
-    maximum: 4,
+    maximum: 2,
     example: 2,
   })
   @IsOptional()
   @IsInt()
   @Min(2)
-  @Max(4)
+  @Max(2, { message: 'maxPlayers must be 2 — every game here is 1v1' })
   maxPlayers?: number;
 
   @ApiPropertyOptional({
     description: 'Replaces the options bag wholesale (not merged).',
-    example: { mode: 'RANKED' },
+    example: { mode: 'CASUAL' },
   })
   @IsOptional()
   @IsObject()
