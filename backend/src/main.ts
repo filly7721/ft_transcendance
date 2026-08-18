@@ -1,5 +1,6 @@
 import { ValidationPipe, Logger, type INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -64,8 +65,21 @@ function setupSwagger(app: INestApplication): void {
  * require authentication for avatar access.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
+
+  // Behind the nginx container every request arrives from the proxy's address,
+  // so Express reports one IP for the whole world and ThrottlerGuard buckets all
+  // callers together — two players sharing a 60/min budget trip it during a
+  // normal match. Trusting one proxy hop makes req.ip the real client again.
+  //
+  // Guarded by the env var because trusting X-Forwarded-For when nothing sets it
+  // lets any caller forge their own IP and dodge the limit entirely. Only true
+  // when we know a proxy we control is in front. WsRateLimiter reads the same
+  // variable for the same reason (see common/ws-auth.ts getSocketIp).
+  if (process.env.TRUST_PROXY === 'true') {
+    app.set('trust proxy', 1);
+  }
 
   // helmet with:
   //  - permissive img-src CSP so avatars served from the backend origin load

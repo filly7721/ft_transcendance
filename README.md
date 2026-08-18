@@ -61,39 +61,79 @@ Node.js is only needed if you want to run the services outside containers.
 git clone https://github.com/filly7721/ft_transcendance
 cd ft_transcendance
 
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
+cp .env.example .env
 
-# Set a real signing secret in backend/.env. The app refuses to boot without one.
-openssl rand -hex 32
+# Fill in the two secrets it asks for. The backend refuses to boot without a real
+# JWT_SECRET, so these are not optional.
+openssl rand -hex 16   # -> POSTGRES_PASSWORD
+openssl rand -hex 32   # -> JWT_SECRET
 
 docker compose up --build
 ```
 
-One command brings up four containers: nginx terminating TLS, the Next.js frontend,
-the NestJS backend, and PostgreSQL. Prisma migrations are applied by the backend
-entrypoint before it starts listening.
+That one command brings up four containers: nginx terminating TLS, the Next.js
+frontend, the NestJS backend, and PostgreSQL. Prisma migrations are applied by the
+backend entrypoint before it starts listening, so a first run reaches the current
+schema on its own.
 
-Open **`https://localhost`**. Local development uses a self-signed certificate, so
-accept the browser warning once.
+Open **`https://localhost`**. The certificate is self-signed and generated on first
+boot, so accept the browser warning once.
+
+### Deployment architecture
+
+Everything is served from one origin, so there is no CORS to configure and one
+certificate covers the whole app.
+
+```
+  browser ──https──▶  nginx :443 (:80 → 301)        ← the only published port
+                          │
+            ┌─────────────┴─────────────┐
+            │ /                         │ /api  and  /socket.io/
+            ▼                           ▼
+      frontend:3000               backend:3001 ──▶ db:5432
+```
+
+nginx terminates TLS and routes by path. `/socket.io/` needs its own block because the
+gateways are websocket-only, with no long-polling fallback to degrade to. The frontend
+and backend are reachable only on the internal network, and Postgres publishes to
+loopback so local development can reach it without exposing it to the LAN. Three named
+volumes survive `docker compose down`: `pgdata`, `uploads` (avatars are files, not rows)
+and `certs`.
 
 ### Environment variables
 
-Both `.env` files are git-ignored, with committed `.env.example` templates.
+Every `.env` is git-ignored, with a committed `.env.example` beside it. The root
+`.env` is the one Compose reads; the per-service files are only used when running
+outside containers.
 
-**`backend/.env`**
+**`.env`** (the container stack)
+
+| Variable | Purpose |
+|---|---|
+| `POSTGRES_PASSWORD` | database password, used to build `DATABASE_URL` |
+| `JWT_SECRET` | session and WebSocket token signing key, 32 characters minimum |
+| `JWT_EXPIRES_IN` | token lifetime, defaults to `7d` |
+| `PUBLIC_ORIGIN` | the single origin everything is served from, defaults to `https://localhost` |
+
+`PUBLIC_ORIGIN` is the allowed CORS origin, the WebSocket origin, and the API base
+compiled into the frontend bundle. Because `NEXT_PUBLIC_*` values are inlined at
+build time, changing it needs `docker compose up --build`, not just a restart. To
+serve over the LAN, set it to the host's address (for example `https://10.18.200.149`)
+and rebuild.
+
+**`backend/.env`** (bare-metal runs only)
 
 | Variable | Purpose |
 |---|---|
 | `PORT` | backend port, defaults to `3001` |
 | `NODE_ENV` | `development` or `production` |
-| `DATABASE_URL` | PostgreSQL URL in Docker, `file:./dev.db` for bare SQLite |
-| `JWT_SECRET` | session and WebSocket token signing key, 32 characters minimum |
-| `JWT_EXPIRES_IN` | token lifetime, defaults to `7d` |
-| `FRONTEND_URL` | the single allowed origin for CORS and both game gateways |
-| `TRUST_PROXY` | `true` behind the nginx container |
+| `DATABASE_URL` | PostgreSQL connection URL |
+| `JWT_SECRET` | as above |
+| `JWT_EXPIRES_IN` | as above |
+| `FRONTEND_URL` | the single allowed origin for CORS and all four gateways |
+| `TRUST_PROXY` | `true` only behind a proxy you control; the stack sets it |
 
-**`frontend/.env.local`**
+**`frontend/.env.local`** (bare-metal runs only)
 
 | Variable | Purpose |
 |---|---|
@@ -101,11 +141,32 @@ Both `.env` files are git-ignored, with committed `.env.example` templates.
 
 ### Running without Docker
 
+Postgres is the database either way, so the `db` container still has to be up. Compose
+publishes it on loopback for exactly this, which means the root `.env` is needed even
+when the app itself runs on the host.
+
 ```bash
-npm install && npm install --prefix backend && npm install --prefix frontend
-npx prisma migrate deploy --schema backend/prisma/schema.prisma
-npm run dev          # both services in watch mode, :3000 and :3001
+cp .env.example .env                        # POSTGRES_PASSWORD starts the database
+docker compose up -d db
+
+npm install
+npm install --prefix backend
+npm install --prefix frontend
+
+cp backend/.env.example backend/.env        # set JWT_SECRET and the password
+cp frontend/.env.example frontend/.env.local
+
+cd backend && npx prisma migrate deploy && cd ..
+npm run dev                                 # both services in watch mode, :3000 and :3001
 ```
+
+`DATABASE_URL` in `backend/.env` has to carry the same password as the root `.env`:
+`postgresql://arcade:<POSTGRES_PASSWORD>@localhost:5432/arcade`.
+
+Two things that will otherwise cost you an afternoon. Run Prisma from `backend/` rather
+than the repo root: the CLI is a local dependency there, and `npx` at the root fetches a
+newer major version that rejects this schema outright. And this path serves plain HTTP on
+`:3000`, so use the container stack for anything that has to demonstrate HTTPS.
 
 ### Using the public API
 
@@ -212,13 +273,14 @@ coordination, with a weekly sync.
 |---|---|
 | **NestJS 11** on Express | Modules and dependency injection make boundaries explicit when several people add modules in parallel. Gateways and controllers share one lifecycle, so a socket reuses the same JWT verification as an HTTP route |
 | **Prisma 5.22** | Typed queries generated from one schema file, plus a real migration history |
-| **PostgreSQL** in Docker, **SQLite** for bare local runs | The schema is deliberately compatible with both (no enums, no native arrays, status fields are plain strings), so the swap is one `provider` line |
+| **PostgreSQL 16**, everywhere | One engine for development and deployment. Prisma takes `provider` as a static literal rather than an `env()` call, and a migration history is dialect-specific either way, so two engines would have meant maintaining two migration histories. The schema still uses only portable types (no enums, no native arrays, status fields are plain strings) |
 | **JWT** and **bcrypt** | One token proves identity to both the HTTP API and all four gateways, so there is a single place authentication can be wrong |
 | **Socket.IO 4.8** | Rooms are exactly the primitive needed: a lobby room per code, a per-user room for targeted delivery, a namespace per gateway |
 | **class-validator** | Validation declared on the DTO next to the type, enforced globally with `whitelist` and `forbidNonWhitelisted`, so unknown properties are rejected rather than ignored |
 | **@nestjs/swagger** | The public API is only worth claiming if an integrator can use it without reading the source |
 | **@nestjs/throttler**, **helmet** | Per-route rate limits and secure headers, with the throttler subclassed to bucket the public API per key instead of per IP |
 | **nginx** | Terminates TLS in front of both services, so no application code handles certificates |
+| **Docker Compose** | Four services from one command. `prisma migrate deploy` runs on the backend entrypoint, so a fresh clone reaches the current schema with no manual step |
 
 ## Database Schema
 
@@ -360,7 +422,7 @@ room code**, since a lobby is only ever addressed by the code a player types.
 | Accessible Privacy Policy and Terms of Service pages | Done, `/privacy` and `/terms`, linked from the footer |
 | Multi-user support, concurrent and real-time | Done |
 | CSS framework or styling solution | Done, Tailwind CSS 4 |
-| Credentials in a git-ignored `.env` with a committed `.env.example` | Done, both services |
+| Credentials in a git-ignored `.env` with a committed `.env.example` | Done, root and both services |
 | Clear database schema with well-defined relations | Done, Prisma, seven models, migration history |
 | Secure signup and login, hashed and salted | Done, bcrypt and JWT |
 | Form validation on both frontend and backend | Done, `ValidationPipe` with `whitelist` and `forbidNonWhitelisted`, plus client-side checks |
@@ -476,10 +538,10 @@ frontend uses so an internal refactor cannot break an integration.
 
 Prisma 5.22. One `schema.prisma` is the single source of truth for the seven models,
 their relations, cascade behaviour and indexes, and the client is generated from it, so
-a query that does not match the schema fails at compile time. Migrations are committed,
-so any checkout reaches the current schema with `migrate deploy`. Aggregations use
-`groupBy` rather than raw SQL, which keeps the statistics queries portable between
-SQLite and PostgreSQL.
+a query that does not match the schema fails at compile time. The migration history is
+committed, so any checkout reaches the current schema with `migrate deploy`, which is
+exactly what the backend container runs on boot. Aggregations use `groupBy` rather than
+raw SQL, so the statistics queries carry no dialect assumptions.
 
 #### Custom-made design system (Minor, 1)
 
@@ -649,6 +711,9 @@ AI coding assistants were used for the following, and nothing else:
   `backend/SECURITY_AUDIT.md`. Its findings were verified and fixed by hand, and a
   later manual pass by a different team member found issues the audit had missed,
   including the unbounded socket message path and the spoofed client IP.
+- **Container setup.** The Compose stack, both Dockerfiles and the nginx config were
+  drafted with AI assistance, then verified by hand from a clean
+  `docker compose up --build`.
 - **Documentation.** Drafting this README and the explanatory comments in the more
   subtle modules, such as the Minesweeper solver.
 - **Code review.** A second pass over type safety and authorisation checks, used as a

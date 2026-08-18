@@ -1,18 +1,19 @@
 // Prisma schema for ft_transcendence backend
 // Auth + Lobbies + Profile + Friends + Chat scope.
-// All models wire-compatible with SQLite (local dev) and Postgres (prod).
+// All models use only portable field types (no enums, no native arrays, no @db.).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  // Local development uses SQLite (zero-setup, file-based) so the backend
-  // boots without a running Postgres instance — see backendref.md §3.
-  // Production should override this to "postgresql" via the same schema + a
-  // matching DATABASE_URL; both providers are wire-compatible with the
-  // models below (no enums, no native arrays, no @db. extensions).
-  provider = "sqlite"
+  // Postgres everywhere: the container stack runs it as a service, and local
+  // development points DATABASE_URL at the same container (`docker compose up
+  // -d db`). Prisma takes `provider` as a static literal, not an env() call, so
+  // one schema cannot serve two engines without a build-time swap — and a
+  // migration history is dialect-specific either way, so the dev/prod split
+  // this used to have was never free.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

@@ -13,6 +13,10 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 const allowedDevOrigins = apiUrl ? [new URL(apiUrl).hostname] : [];
 
 const nextConfig: NextConfig = {
+  // Emit a self-contained server bundle (.next/standalone) that carries only the
+  // dependencies actually reached at runtime, so the container image does not
+  // need node_modules at all. This is the documented way to ship Next in Docker.
+  output: "standalone",
   allowedDevOrigins,
   async redirects() {
     // Games moved from /games/<slug> to /lobby/<slug>
