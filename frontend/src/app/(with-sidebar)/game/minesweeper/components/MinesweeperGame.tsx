@@ -7,6 +7,7 @@ import { useRejection } from "@/components/games/useRejection";
 import { useMinesweeper, type MinesweeperGameState } from "../lib/useMinesweeper";
 import type { GameOverEvent } from "../lib/protocol";
 import MinesweeperBoard from "./MinesweeperBoard";
+import TapModeToggle, { type TapMode } from "./TapModeToggle";
 
 function statusLine(state: MinesweeperGameState): { text: string; glow: string } {
   switch (state.phase) {
@@ -60,6 +61,10 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
   // is remembered is WHICH result was waved away: the next race ends with a
   // different one, so its popup shows up rather than starting out dismissed.
   const [dismissed, setDismissed] = useState<GameOverEvent | null>(null);
+
+  // Sticky, like every minesweeper: flagging a run of cells should not mean
+  // re-arming the switch between each one.
+  const [tapMode, setTapMode] = useState<TapMode>("reveal");
   const end = game.result === dismissed ? null : endOfGame(game);
 
   // A refused connection means there is no game here to draw. Rendering the
@@ -94,16 +99,24 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
             the boards fill the column they are given and their cells shrink to
             fit, so neither layout can overflow the screen. */}
         <div className="grid w-full items-start gap-4 sm:gap-8 lg:grid-cols-2">
-          <div className="min-w-0 border border-arcade-border bg-arcade-card">
-            <p className="pt-3 text-center font-arcade text-xs glow-cyan">
-              YOU {game.player !== null ? `(P${game.player})` : ""}
-            </p>
-            <MinesweeperBoard
-              board={game.myBoard}
-              onReveal={game.reveal}
-              onFlag={game.flag}
-              disabled={!canPlay}
-            />
+          {/* The switch belongs to the player's own board, so it rides in that
+              column: under the board on a desktop, and directly under it on a
+              phone rather than below the enemy's. Outside the panel, because it
+              is a control for the board and not part of it. */}
+          <div className="flex min-w-0 flex-col items-center gap-3">
+            <div className="w-full border border-arcade-border bg-arcade-card">
+              <p className="pt-3 text-center font-arcade text-xs glow-cyan">
+                YOU {game.player !== null ? `(P${game.player})` : ""}
+              </p>
+              <MinesweeperBoard
+                board={game.myBoard}
+                onReveal={game.reveal}
+                onFlag={game.flag}
+                tapMode={tapMode}
+                disabled={!canPlay}
+              />
+            </div>
+            <TapModeToggle mode={tapMode} onChange={setTapMode} />
           </div>
 
           <div className="min-w-0 border border-arcade-border bg-arcade-card">
