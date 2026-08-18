@@ -23,3 +23,7 @@ health-check.js
 extras/
 # macOS finder metadata
 .DS_Store
+
+# Agent instruction files (Next.js regenerates AGENTS.md)
+AGENTS.md
+CLAUDE.md
