@@ -5,12 +5,27 @@ import type { IconName } from "@/components/ui/Icon";
 
 export type GameAccent = "cyan" | "magenta";
 
+/** One line of the HOW TO PLAY list on a game's lobby page. */
+export type GameHint = {
+  text: string;
+  /**
+   * Hidden below `md`, for hints that only mean something with a mouse: "right
+   * click" is not an instruction you can follow on a phone, where the board's
+   * reveal/flag switch does that job instead.
+   *
+   * This is a width breakpoint and not pointer detection, so a narrow desktop
+   * window hides the hint too. `@media (pointer: coarse)` is the precise tool
+   * if that ever starts to matter.
+   */
+  desktopOnly?: boolean;
+};
+
 export type Game = {
   slug: string;
   title: string;
   description: string;
   tagline: string;
-  hints: string[];
+  hints: GameHint[];
   /** Emoji used in the large card art on the home page. */
   icon: string;
   /** Name in the pixel icon set — used wherever the game appears at UI scale
@@ -28,9 +43,9 @@ export const games: Game[] = [
     description: "Clear the minefield. One wrong click ends it all.",
     tagline: "Reveal the field — avoid the mines",
     hints: [
-      "Left click reveals a cell",
-      "Right click places a flag",
-      "Numbers count the mines around them",
+      { text: "Left click reveals a cell" },
+      { text: "Right click places a flag", desktopOnly: true },
+      { text: "Numbers count the mines around them" },
     ],
     icon: "💣",
     pixelIcon: "bomb",
@@ -43,9 +58,9 @@ export const games: Game[] = [
     description: "9 boards. Win three. Outsmart your opponent.",
     tagline: "Win 3 boards in a row to claim victory",
     hints: [
-      "Win a mini board to claim it on the outer grid",
-      "Your move sends your opponent to that board",
-      "Win 3 boards in a row to win the game",
+      { text: "Win a mini board to claim it on the outer grid" },
+      { text: "Your move sends your opponent to that board" },
+      { text: "Win 3 boards in a row to win the game" },
     ],
     icon: "⊞",
     pixelIcon: "grid",

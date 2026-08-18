@@ -30,7 +30,12 @@ export default async function LobbyPage({ params }: PageProps<"/lobby/[game]">) 
         <div className="mb-3 font-arcade text-xs">HOW TO PLAY</div>
         <ul className="space-y-1.5 text-foreground/60">
           {game.hints.map((hint) => (
-            <li key={hint}>▸ {hint}</li>
+            <li
+              key={hint.text}
+              className={hint.desktopOnly ? "hidden md:list-item" : undefined}
+            >
+              ▸ {hint.text}
+            </li>
           ))}
         </ul>
       </div>
