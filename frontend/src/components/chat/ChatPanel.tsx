@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Button from "@/components/Button";
+import Input from "@/components/ui/Input";
 import { FriendAvatar } from "@/components/profile/FriendAvatar";
 import {
   fetchConversations,
@@ -51,6 +52,12 @@ function applyMessageToConversations(
  * Shared chat panel — used by both the /chat page (full size) and the
  * ChatWidget (floating). Shows a conversation list on the left and the
  * active message thread on the right.
+ *
+ * Which of those two it can afford depends on how much width the panel itself
+ * was given, not on how wide the window is — the floating widget is narrow on
+ * a desktop too. So the layout switches on a container query (`@container` +
+ * `@lg:`): under 32rem it shows one pane at a time, list until a conversation
+ * is picked and thread after that, with a back button to return.
  *
  * Connects to the /chat WebSocket namespace for real-time messages,
  * typing indicators, and read receipts. WS payloads are applied to local
@@ -258,9 +265,14 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   }, [activePeer]);
 
   return (
-    <div className="flex h-full min-h-[400px] border border-arcade-border bg-arcade-panel">
-      {/* Conversation list */}
-      <div className="w-48 shrink-0 border-r border-arcade-border overflow-y-auto">
+    <div className="@container flex h-full min-h-0 border border-arcade-border bg-arcade-panel">
+      {/* Conversation list — the whole panel while nothing is open, a fixed
+          column beside the thread once there is room for both. */}
+      <div
+        className={`w-full shrink-0 overflow-y-auto border-r border-arcade-border @lg:block @lg:w-48 ${
+          activePeer ? "hidden" : "block"
+        }`}
+      >
         <p className="sticky top-0 bg-arcade-panel px-3 py-2 font-arcade text-[10px] text-arcade-muted">CHATS</p>
         {conversations === null ? (
           <p className="px-3 py-4 font-mono text-[10px] text-arcade-muted animate-blink">LOADING...</p>
@@ -271,7 +283,7 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
             <button
               key={c.peerLogin}
               onClick={() => setActivePeer(c.peerLogin)}
-              className={`flex w-full items-center gap-2 border-b border-arcade-border/50 px-2 py-2 text-left transition-colors hover:bg-arcade-card ${activePeer === c.peerLogin ? "bg-arcade-card" : ""}`}
+              className={`flex w-full items-center gap-2 border-b border-arcade-border/50 px-2 py-3 text-left transition-colors hover:bg-arcade-card @lg:py-2 ${activePeer === c.peerLogin ? "bg-arcade-card" : ""}`}
             >
               <FriendAvatar login={c.peerLogin} avatarUrl={c.peerAvatarUrl} size="sm" />
               <div className="min-w-0 flex-1">
@@ -286,18 +298,29 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
         )}
       </div>
 
-      {/* Message thread */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Message thread — hidden on a narrow panel until a peer is picked, so
+          the list gets the full width instead of both being unusable. */}
+      <div
+        className={`min-w-0 flex-1 flex-col @lg:flex ${activePeer ? "flex" : "hidden"}`}
+      >
         {activePeer ? (
           <>
-            <div className="border-b border-arcade-border px-4 py-2">
-              <p className="font-arcade text-[10px] text-neon-cyan">@{activePeer}</p>
+            <div className="flex items-center gap-2 border-b border-arcade-border px-2 py-2 @lg:px-4">
+              <button
+                type="button"
+                onClick={() => setActivePeer(null)}
+                aria-label="Back to conversations"
+                className="flex h-7 w-6 shrink-0 items-center justify-center font-mono text-sm text-arcade-muted transition-colors hover:text-neon-cyan @lg:hidden"
+              >
+                ‹
+              </button>
+              <p className="min-w-0 truncate font-arcade text-[10px] text-neon-cyan">@{activePeer}</p>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               {messages.map((m) => (
                 <div key={m.id} className={`mb-2 flex ${m.senderLogin === activePeer ? "justify-start" : "justify-end"}`}>
-                  <div className={`max-w-[70%] border px-3 py-1.5 font-mono text-xs ${m.senderLogin === activePeer ? "border-arcade-border bg-arcade-card" : "border-neon-cyan/30 bg-neon-cyan/10"}`}>
-                    <p>{m.content}</p>
+                  <div className={`max-w-[85%] border px-3 py-1.5 font-mono text-xs @lg:max-w-[70%] ${m.senderLogin === activePeer ? "border-arcade-border bg-arcade-card" : "border-neon-cyan/30 bg-neon-cyan/10"}`}>
+                    <p className="break-words">{m.content}</p>
                     <p className="mt-0.5 text-[8px] text-arcade-muted">{new Date(m.createdAt).toLocaleTimeString()}</p>
                   </div>
                 </div>
@@ -306,14 +329,14 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
               <div ref={messagesEndRef} />
             </div>
             <div className="flex gap-2 border-t border-arcade-border p-2">
-              <input
+              <Input
                 type="text"
                 value={input}
                 onChange={(e) => { setInput(e.target.value); handleTyping(); }}
                 onKeyDown={(e) => { if (e.key === "Enter") sendMessage(); }}
                 placeholder="TYPE A MESSAGE..."
                 maxLength={1000}
-                className="min-w-0 flex-1 border border-arcade-border bg-arcade-bg px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:border-neon-cyan"
+                className="flex-1"
               />
               <Button onClick={sendMessage}>SEND</Button>
             </div>
