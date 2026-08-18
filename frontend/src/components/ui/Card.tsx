@@ -32,7 +32,7 @@ export default function Card({
 }: Props) {
   return (
     <section
-      className={`border border-arcade-border bg-arcade-panel p-6 ${className}`}
+      className={`border border-arcade-border bg-arcade-panel p-4 sm:p-6 ${className}`}
     >
       {title && (
         <h2
