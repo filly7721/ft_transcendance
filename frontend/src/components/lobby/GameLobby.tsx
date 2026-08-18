@@ -6,7 +6,12 @@ import LobbySelector from "./LobbySelector";
 // segment will host the actual game session once rooms exist.
 export default function GameLobby({ game }: { game: string }) {
   return (
-    <div className="flex w-full flex-col items-start gap-8 xl:flex-row">
+    // `items-start` is scoped to the row layout on purpose. It means "top-align
+    // the two columns" there, but in the stacked layout the cross axis is
+    // horizontal, so it shrink-wraps both children to their content width. The
+    // demo sizes itself from the width it is given rather than from a fixed cell
+    // size, so shrink-wrapping collapsed it to almost nothing.
+    <div className="flex w-full flex-col gap-8 xl:flex-row xl:items-start">
       <LobbySelector game={game} />
 
       {/* Demo preview of the game, replaced by the real board inside a room.
