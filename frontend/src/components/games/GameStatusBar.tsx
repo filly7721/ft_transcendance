@@ -35,10 +35,10 @@ export default function GameStatusBar({
   trailing,
 }: Props) {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 border border-arcade-border bg-arcade-panel px-8 py-4">
+    <div className="flex w-full max-w-full flex-wrap items-center justify-center gap-x-4 gap-y-3 border border-arcade-border bg-arcade-panel px-4 py-4 sm:w-auto sm:gap-x-8 sm:px-8">
       <StatusCell label="ROOM">{room}</StatusCell>
 
-      <div className="border-x border-arcade-border px-4 text-center font-mono text-xs">
+      <div className="min-w-0 border-x border-arcade-border px-4 text-center font-mono text-xs">
         {children}
       </div>
 

@@ -3,26 +3,16 @@ import Cell from "./Cell";
 import { Cell as CellType } from "./CellDisplay";
 
 /**
- * Widest a single board may render. Two of these sit side by side in the
- * versus view, so each has to leave room for the other plus the sidebar.
+ * Presentational board: all game state lives on the server (via
+ * useMinesweeper); this only renders cells and forwards clicks.
+ *
+ * Sizing is CSS, not arithmetic (see the `ms-board` utility in globals.css).
+ * The cells are one square grid that divides up whatever width the board is
+ * given, capped at the 2.5rem cells it has on a desktop, so the 16×16 board no
+ * longer runs off the side of a phone. `@container` is what the utility
+ * measures against — the panel this board sits in, not the window, which is
+ * what the versus view needs: two boards share the width there.
  */
-const MAX_BOARD_PX = 420;
-/** Never larger than this — the size the 9x9 board always used. */
-const MAX_CELL_PX = 40;
-/** Never smaller than this, or the cells stop being clickable. */
-const MIN_CELL_PX = 18;
-
-/** Fit `cols` cells into MAX_BOARD_PX, within the bounds above. */
-function cellSize(cols: number): number {
-  if (cols <= 0) return MAX_CELL_PX;
-  return Math.max(
-    MIN_CELL_PX,
-    Math.min(MAX_CELL_PX, Math.floor(MAX_BOARD_PX / cols)),
-  );
-}
-
-// Presentational board: all game state lives on the server (via
-// useMinesweeper); this only renders cells and forwards clicks.
 function MinesweeperBoard({
   board,
   onReveal,
@@ -43,30 +33,26 @@ function MinesweeperBoard({
   }
 
   return (
-    <div
-      className={`flex flex-col p-4 ${disabled ? "opacity-80" : ""}`}
-      style={{ "--ms-cell": `${cellSize(cols)}px` } as React.CSSProperties}
-    >
-      {board.map((row, r) => {
-        return (
-          <div key={r} className="flex w-fit">
-            {row.map((cell, c) => {
-              return (
-                <Cell
-                  key={c}
-                  name={cell}
-                  onLeftClick={() => {
-                    if (!disabled) onReveal?.(r, c);
-                  }}
-                  onRightClick={() => {
-                    if (!disabled) onFlag?.(r, c);
-                  }}
-                ></Cell>
-              );
-            })}
-          </div>
-        );
-      })}
+    <div className={`@container p-2 sm:p-4 ${disabled ? "opacity-80" : ""}`}>
+      <div
+        className="ms-board mx-auto"
+        style={{ "--ms-cols": cols } as React.CSSProperties}
+      >
+        {board.map((row, r) =>
+          row.map((cell, c) => (
+            <Cell
+              key={`${r}-${c}`}
+              name={cell}
+              onLeftClick={() => {
+                if (!disabled) onReveal?.(r, c);
+              }}
+              onRightClick={() => {
+                if (!disabled) onFlag?.(r, c);
+              }}
+            />
+          )),
+        )}
+      </div>
     </div>
   );
 }

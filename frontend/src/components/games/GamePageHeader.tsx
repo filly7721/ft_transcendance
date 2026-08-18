@@ -8,10 +8,10 @@ export default function GamePageHeader({ slug }: { slug: string }) {
 
   return (
     <div className="text-center">
-      <h1 className={`mb-2 font-arcade text-2xl animate-glow-pulse ${accentGlow[game.accent]}`}>
+      <h1 className={`mb-2 font-arcade text-lg animate-glow-pulse sm:text-2xl ${accentGlow[game.accent]}`}>
         {game.title}
       </h1>
-      <p className="font-mono text-xs uppercase tracking-widest text-neon-yellow animate-blink">
+      <p className="font-mono text-[10px] uppercase tracking-widest text-neon-yellow animate-blink sm:text-xs">
         ONLINE VERSUS
       </p>
     </div>

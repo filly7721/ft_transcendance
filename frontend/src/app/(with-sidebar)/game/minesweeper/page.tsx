@@ -19,7 +19,7 @@ export default async function MinesweeperGamePage({
   const roomCode = typeof room === "string" && room.length > 0 ? room : null;
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col items-center gap-8 px-6 py-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-8 px-4 py-8 sm:px-6 sm:py-12">
       <GamePageHeader slug="minesweeper" />
 
       {roomCode ? (

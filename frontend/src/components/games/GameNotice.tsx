@@ -21,7 +21,7 @@ export default function GameNotice({
   action?: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-6 border border-arcade-border bg-arcade-panel px-10 py-12">
+    <div className="flex w-full max-w-sm flex-col items-center gap-6 border border-arcade-border bg-arcade-panel px-6 py-10 sm:px-10 sm:py-12">
       <p className="font-arcade text-sm text-arcade-muted">{title}</p>
       <p className="max-w-xs text-center font-mono text-xs text-foreground/60">
         {message}

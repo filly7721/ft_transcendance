@@ -26,32 +26,32 @@ const numberGlow: Record<number, string> = {
 function CellDisplay({ cell }: { cell: Cell }) {
   if (cell === 'h') {
     return (
-      <div className="w-10 h-10 bg-arcade-panel border border-arcade-border shadow-[inset_-1px_-1px_0_#00000080,inset_1px_1px_0_#ffffff08] flex items-center justify-center cursor-pointer hover:border-arcade-muted transition-colors" />
+      <div className="aspect-square w-full bg-arcade-panel border border-arcade-border shadow-[inset_-1px_-1px_0_#00000080,inset_1px_1px_0_#ffffff08] flex items-center justify-center cursor-pointer hover:border-arcade-muted transition-colors" />
     );
   }
   if (cell === 'f') {
     return (
-      <div className="w-10 h-10 bg-arcade-panel border border-arcade-border flex items-center justify-center text-sm select-none">
+      <div className="aspect-square w-full bg-arcade-panel border border-arcade-border flex items-center justify-center text-[1.15em] select-none">
         🚩
       </div>
     );
   }
   if (cell === 'm') {
     return (
-      <div className="w-10 h-10 bg-neon-red/10 border border-neon-red flex items-center justify-center text-sm select-none">
+      <div className="aspect-square w-full bg-neon-red/10 border border-neon-red flex items-center justify-center text-[1.15em] select-none">
         💣
       </div>
     );
   }
   if (cell === 0) {
     return (
-      <div className="w-10 h-10 bg-arcade-bg border border-arcade-border/30 flex items-center justify-center" />
+      <div className="aspect-square w-full bg-arcade-bg border border-arcade-border/30 flex items-center justify-center" />
     );
   }
 
   return (
     <div
-      className={`w-10 h-10 bg-arcade-bg border border-arcade-border/30 flex items-center justify-center font-arcade text-xs ${numberGlow[cell]}`}
+      className={`aspect-square w-full bg-arcade-bg border border-arcade-border/30 flex items-center justify-center font-arcade ${numberGlow[cell]}`}
     >
       {cell}
     </div>
@@ -64,16 +64,16 @@ export default function MinesweeperDemo() {
   const time = "042";
 
   return (
-    <div className="border border-arcade-border bg-arcade-panel p-6 rounded-sm box-glow-cyan">
+    <div className="@container w-full max-w-md rounded-sm border border-arcade-border bg-arcade-panel p-4 box-glow-cyan sm:p-6">
       {/* Status bar */}
-      <div className="flex items-center justify-between mb-4 px-2">
+      <div className="mb-4 flex items-center justify-between px-2">
         {/* Mine counter */}
         <div className="flex items-center gap-2 font-arcade text-sm glow-red">
           💣 {String(minesLeft).padStart(3, '0')}
         </div>
 
         {/* Smiley face restart button */}
-        <button className="w-10 h-10 border border-arcade-border bg-arcade-card flex items-center justify-center text-lg hover:border-neon-yellow hover:shadow-[0_0_8px_#ffe00040] transition-all cursor-pointer">
+        <button className="h-10 w-10 border border-arcade-border bg-arcade-card flex items-center justify-center text-lg hover:border-neon-yellow hover:shadow-[0_0_8px_#ffe00040] transition-all cursor-pointer">
           😊
         </button>
 
@@ -83,15 +83,17 @@ export default function MinesweeperDemo() {
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="border-2 border-arcade-border">
-        {board.map((row, rowIdx) => (
-          <div key={rowIdx} className="flex">
-            {row.map((cell, colIdx) => (
-              <CellDisplay key={`${rowIdx}-${colIdx}`} cell={cell} />
-            ))}
-          </div>
-        ))}
+      {/* Grid — one `ms-board` grid, so the cells divide up the width the
+          preview is given instead of forcing it to 9 × 40px. */}
+      <div
+        className="ms-board mx-auto border-2 border-arcade-border"
+        style={{ "--ms-cols": board[0].length } as React.CSSProperties}
+      >
+        {board.map((row, rowIdx) =>
+          row.map((cell, colIdx) => (
+            <CellDisplay key={`${rowIdx}-${colIdx}`} cell={cell} />
+          )),
+        )}
       </div>
 
       {/* Legend */}

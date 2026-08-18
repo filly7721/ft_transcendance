@@ -73,14 +73,14 @@ export default function GameOverModal({
       // The backdrop is a click target, but a plain div: the same action sits
       // on the focusable DISMISS button below, so nothing is keyboard-only.
       onClick={onDismiss}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-arcade-bg/80 p-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-arcade-bg/80 p-4 backdrop-blur-sm sm:p-6"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="game-over-headline"
         onClick={(event) => event.stopPropagation()}
-        className={`flex animate-pop-in flex-col items-center gap-6 border-2 bg-arcade-panel px-10 py-10 ${palette.border} ${palette.halo}`}
+        className={`flex w-full max-w-sm animate-pop-in flex-col items-center gap-6 border-2 bg-arcade-panel px-6 py-8 sm:px-10 sm:py-10 ${palette.border} ${palette.halo}`}
       >
         <p className="font-mono text-xs uppercase tracking-[0.3em] text-arcade-muted">
           GAME OVER
@@ -88,7 +88,7 @@ export default function GameOverModal({
 
         <h2
           id="game-over-headline"
-          className={`text-center font-arcade text-2xl sm:text-3xl ${palette.text} animate-glow-pulse`}
+          className={`text-center font-arcade text-xl sm:text-3xl ${palette.text} animate-glow-pulse`}
         >
           {HEADLINE[outcome]}
         </h2>

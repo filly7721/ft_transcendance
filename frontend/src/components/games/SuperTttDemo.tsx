@@ -52,7 +52,7 @@ function MiniBoard({ cells, state }: { cells: Mark[][]; state: BoardState }) {
       {isWon && (
         <div className="absolute inset-0 flex items-center justify-center bg-arcade-bg/70 z-10">
           <span
-            className={`font-arcade text-3xl ${state === 'won-x' ? 'glow-cyan' : 'glow-magenta'}`}
+            className={`font-arcade text-2xl sm:text-3xl ${state === 'won-x' ? 'glow-cyan' : 'glow-magenta'}`}
           >
             {state === 'won-x' ? 'X' : 'O'}
           </span>
@@ -71,7 +71,7 @@ function MiniBoard({ cells, state }: { cells: Mark[][]; state: BoardState }) {
         {cells.flat().map((mark, i) => (
           <div
             key={i}
-            className={`w-8 h-8 flex items-center justify-center border text-xs font-arcade transition-colors ${
+            className={`flex aspect-square w-full items-center justify-center border font-arcade text-xs transition-colors ${
               isActive && !mark
                 ? 'border-arcade-border/60 bg-arcade-panel cursor-pointer hover:border-neon-cyan/50'
                 : 'border-arcade-border/30 bg-arcade-panel'
@@ -92,9 +92,9 @@ export default function SuperTttDemo() {
   const oWins = outerBoard.filter((b) => b === 'O').length;
 
   return (
-    <div className="flex flex-col items-center gap-10">
+    <div className="flex w-full flex-col items-center gap-6 sm:gap-10">
       {/* Score bar */}
-      <div className="flex items-center gap-8 border border-arcade-border bg-arcade-panel px-8 py-4">
+      <div className="flex items-center gap-4 border border-arcade-border bg-arcade-panel px-4 py-3 sm:gap-8 sm:px-8 sm:py-4">
         <div className="text-center">
           <div className="font-mono text-xs text-arcade-muted mb-1">PLAYER 1</div>
           <div className="font-arcade text-2xl glow-cyan">{xWins}</div>
@@ -114,7 +114,7 @@ export default function SuperTttDemo() {
       </div>
 
       {/* Main board — 3×3 grid of mini boards */}
-      <div className="grid grid-cols-3 gap-4 mt-2">
+      <div className="mt-2 grid w-full max-w-[30rem] grid-cols-3 gap-2 sm:gap-4">
         {miniBoards.map((cells, i) => (
           <MiniBoard key={i} cells={cells} state={boardStates[i]} />
         ))}

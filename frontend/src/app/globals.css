@@ -60,6 +60,22 @@
   100% { opacity: 0.75; transform: scale(0.95); }
 }
 
+/* Minesweeper board — a grid of square cells that shrinks to fit the width it
+   is given, instead of overflowing the screen on a phone.
+
+   The caller sets `--ms-cols` (the server decides the board size) and wraps the
+   board in a container-query context (`@container`); the cell size is then the
+   column width, capped so the board never grows past the 2.5rem cells it has
+   on a desktop. Cell text scales with the cell, or a digit would outgrow its
+   own square on a narrow screen. */
+@utility ms-board {
+  --ms-cell: min(2.5rem, calc(100cqi / var(--ms-cols, 16)));
+  display: grid;
+  grid-template-columns: repeat(var(--ms-cols, 16), minmax(0, 1fr));
+  width: calc(var(--ms-cols, 16) * var(--ms-cell));
+  font-size: min(0.75rem, calc(var(--ms-cell) * 0.55));
+}
+
 /* Neon text glow utilities */
 @utility glow-cyan {
   color: #00f5ff;

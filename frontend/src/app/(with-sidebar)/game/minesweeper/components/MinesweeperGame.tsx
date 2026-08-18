@@ -80,7 +80,7 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-6">
+    <div className="flex w-full flex-col items-center gap-6">
       <GameStatusBar
         room={lobbyCode}
         opponent={game.opponent}
@@ -89,9 +89,12 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
         <p className={`font-arcade text-xs ${status.glow}`}>{status.text}</p>
       </GameStatusBar>
 
-      <div className="relative">
-        <div className="flex flex-wrap items-start justify-center gap-8">
-          <div className="border border-arcade-border bg-arcade-card w-fit h-fit">
+      <div className="relative w-full">
+        {/* Side by side once there is room for two boards, stacked below that:
+            the boards fill the column they are given and their cells shrink to
+            fit, so neither layout can overflow the screen. */}
+        <div className="grid w-full items-start gap-4 sm:gap-8 lg:grid-cols-2">
+          <div className="min-w-0 border border-arcade-border bg-arcade-card">
             <p className="pt-3 text-center font-arcade text-xs glow-cyan">
               YOU {game.player !== null ? `(P${game.player})` : ""}
             </p>
@@ -103,7 +106,7 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
             />
           </div>
 
-          <div className="border border-arcade-border bg-arcade-card w-fit h-fit">
+          <div className="min-w-0 border border-arcade-border bg-arcade-card">
             <p className="max-w-full truncate px-3 pt-3 text-center font-arcade text-xs glow-magenta">
               {game.opponent ?? `ENEMY ${game.player !== null ? `(P${game.player === 1 ? 2 : 1})` : ""}`}
             </p>
@@ -121,7 +124,7 @@ export default function MinesweeperGame({ lobbyCode }: { lobbyCode: string }) {
             <span
               // Re-keyed every tick so the digit's animation plays again.
               key={game.countdown}
-              className="animate-count-in font-arcade text-6xl glow-yellow"
+              className="animate-count-in font-arcade text-4xl glow-yellow sm:text-6xl"
             >
               {game.countdown !== null && game.countdown > 0 ? game.countdown : "GO!"}
             </span>

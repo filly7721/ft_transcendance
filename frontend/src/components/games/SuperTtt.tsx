@@ -58,7 +58,7 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-10">
+    <div className="flex w-full flex-col items-center gap-6 sm:gap-10">
       <GameStatusBar
         room={lobbyCode}
         opponent={opponent}
@@ -84,7 +84,10 @@ export default function SuperTtt({ lobbyCode }: { lobbyCode: string }) {
         </p>
       )}
 
-      <div className="bg-arcade-card  mt-2 p-4 rounded-xl">
+      {/* The board is fluid up to the size it had before: the outer grid takes
+          the width it is given, and every cell is a square fraction of it, so
+          the 9×9 playing surface fits a phone without a horizontal scroll. */}
+      <div className="mt-2 w-full max-w-[30rem] rounded-xl bg-arcade-card p-2 sm:p-4">
         <div className="grid grid-cols-3 gap-1 bg-[radial-gradient(circle_closest-side,var(--color-arcade-border)_95%,transparent_100%)]">
           {state.boards.map((cells, boardIdx) => {
             // A board is "in play" whoever's turn it is: on our turn it lights
@@ -247,7 +250,7 @@ function MiniBoard({
       {result !== null && result !== "draw" && (
         <div className="absolute inset-0 flex items-center justify-center bg-arcade-bg/70 z-10">
           <span
-            className={`font-arcade text-3xl ${result === "X" ? "glow-cyan" : "glow-magenta"}`}
+            className={`font-arcade text-2xl sm:text-3xl ${result === "X" ? "glow-cyan" : "glow-magenta"}`}
           >
             {result}
           </span>
@@ -276,7 +279,7 @@ function MiniBoard({
               key={cellIdx}
               onClick={() => onCellClick(cellIdx)}
               disabled={!playable || mark !== null}
-              className={`w-8 h-8 flex items-center justify-center border text-xs font-arcade transition-colors ${cellClass}`}
+              className={`flex aspect-square w-full items-center justify-center border font-arcade text-xs transition-colors ${cellClass}`}
             >
               {mark === "X" && <span className="glow-cyan text-xs">X</span>}
               {mark === "O" && <span className="glow-magenta text-xs">O</span>}
