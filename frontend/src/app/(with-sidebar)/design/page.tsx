@@ -132,7 +132,7 @@ export default function DesignSystemPage() {
 
         {/* ---- Icons ---- */}
         <Card title="ICON SET" accent="green">
-          <Spec label="20 icons" code='<Icon name="bomb" size={16} />' />
+          <Spec label={`${iconNames.length} icons`} code='<Icon name="bomb" size={16} />' />
           <p className="mb-6 max-w-2xl font-mono text-[10px] leading-relaxed text-arcade-muted">
             Hand-drawn pixel art on a 16×16 grid, rendered as SVG rects with
             crisp edges — an off-the-shelf vector set would anti-alias itself

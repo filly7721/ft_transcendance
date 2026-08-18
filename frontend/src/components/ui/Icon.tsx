@@ -64,6 +64,10 @@ const ICONS = {
   plus: [
     [7, 3, 2, 10], [3, 7, 10, 2],
   ],
+  /** Three bars — opens the navigation drawer on small screens. */
+  menu: [
+    [2, 3, 12, 2], [2, 7, 12, 2], [2, 11, 12, 2],
+  ],
   /** X — close / dismiss. */
   close: [
     [3, 3, 2, 2], [5, 5, 2, 2], [7, 7, 2, 2], [9, 9, 2, 2], [11, 11, 2, 2],

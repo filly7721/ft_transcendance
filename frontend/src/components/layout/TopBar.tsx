@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import MobileMenu from "./MobileMenu";
 import UserMenu from "./UserMenu";
 import { useNotifications } from "@/components/NotificationProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -14,12 +15,20 @@ export default function TopBar() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-arcade-border bg-arcade-panel/90 backdrop-blur-sm">
-      <div className="flex h-16 items-center justify-between gap-8 px-6">
-        <Link href="/" className="shrink-0 font-arcade text-xs glow-cyan animate-flicker">
-          ARCADE
-        </Link>
+      <div className="flex h-16 items-center justify-between gap-3 px-4 sm:gap-8 sm:px-6">
+        <div className="flex items-center gap-1">
+          {/* Only signed-in users have somewhere to navigate to: every drawer
+              destination is behind the auth guard. */}
+          {showBadges && <MobileMenu />}
 
-        <nav className="flex items-center gap-6">
+          <Link href="/" className="shrink-0 font-arcade text-xs glow-cyan animate-flicker">
+            ARCADE
+          </Link>
+        </div>
+
+        {/* Below `md` these two live in the drawer instead, where there is room
+            for them; the menu button carries the "something is waiting" dot. */}
+        <nav className="hidden items-center gap-6 md:flex">
           {showBadges && (
             <>
               <Link
