@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Press_Start_2P } from "next/font/google";
 import "./globals.css";
 import TopBar from "@/components/layout/TopBar";
@@ -28,13 +28,22 @@ export const metadata: Metadata = {
   description: "A collection of classic arcade mini games",
 };
 
+// Declared rather than left to the framework default: the layout is built for
+// the real viewport width, and `maximumScale`/`userScalable` are deliberately
+// left alone so pinch-zoom keeps working (turning it off fails WCAG 1.4.4).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#06060f",
+};
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${pressStart.variable} h-full antialiased`}
     >
-      <body className="flex min-h-screen flex-col">
+      <body className="flex min-h-dvh flex-col">
         <AuthProvider>
           <NotificationProvider>
             <TopBar />

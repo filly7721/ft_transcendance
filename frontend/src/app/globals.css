@@ -134,3 +134,17 @@ body::before {
 ::-webkit-scrollbar-track { background: #06060f; }
 ::-webkit-scrollbar-thumb { background: #1e1e4a; border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: #00f5ff30; }
+
+/* The neon UI blinks, flickers and pulses everywhere. That is the arcade look,
+   but it is also motion nobody can turn off from inside the app, so honour the
+   setting the OS already offers. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
