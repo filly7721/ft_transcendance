@@ -38,6 +38,12 @@ const MODES: {
  * Two buttons rather than one that flips its own label, which is always
  * ambiguous about whether it names the current mode or the one it switches to.
  * aria-pressed is what says which of the two is live.
+ *
+ * Only rendered where the pointer is coarse, since anyone with a mouse already
+ * has right click and does not need the switch cluttering the board. That is a
+ * pointer query rather than a width breakpoint on purpose: a width rule would
+ * put the switch back on a desktop window dragged narrow, and would take it
+ * away from a tablet, which is wide and still has no right click.
  */
 export default function TapModeToggle({
   mode,
@@ -50,7 +56,7 @@ export default function TapModeToggle({
     <div
       role="group"
       aria-label="What a tap does"
-      className="flex border border-arcade-border bg-arcade-panel"
+      className="hidden border border-arcade-border bg-arcade-panel pointer-coarse:flex"
     >
       {MODES.map((m) => {
         const isSelected = m.mode === mode;
