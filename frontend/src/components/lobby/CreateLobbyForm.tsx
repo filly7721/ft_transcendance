@@ -3,12 +3,15 @@
 import { useState } from "react";
 import Button from "@/components/Button";
 
+// text-base up to `sm` for the same reason as <Input>: iOS Safari zooms the
+// page in on a focused field whose font is under 16px. The <select> is included
+// — it does the same thing.
 const inputClasses =
-  "w-full border border-arcade-border bg-arcade-bg px-2 py-1.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-neon-cyan";
+  "w-full border border-arcade-border bg-arcade-bg px-2 py-2 font-mono text-base text-foreground outline-none transition-colors focus:border-neon-cyan sm:py-1.5 sm:text-xs";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex items-center gap-3">
+    <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
       <span className="w-28 shrink-0 font-mono text-[10px] uppercase tracking-widest text-arcade-muted">
         {label}
       </span>

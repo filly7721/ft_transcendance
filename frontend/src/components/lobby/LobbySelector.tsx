@@ -100,14 +100,11 @@ export default function LobbySelector({ game }: Props) {
   }
 
   return (
-    <section className="flex w-full max-w-md shrink-0 flex-col gap-4 border border-arcade-border bg-arcade-panel p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="font-arcade text-xs text-arcade-muted">OPEN LOBBIES</h2>
+    <section className="flex w-full max-w-md shrink-0 flex-col gap-4 border border-arcade-border bg-arcade-panel p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-arcade text-[10px] text-arcade-muted sm:text-xs">OPEN LOBBIES</h2>
         {!creating && (
-          <Button
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-2"
-          >
+          <Button onClick={() => setCreating(true)}>
             <Icon name="plus" /> CREATE LOBBY
           </Button>
         )}
@@ -145,16 +142,16 @@ export default function LobbySelector({ game }: Props) {
         </p>
       )}
 
-      <form onSubmit={handleJoinByCode} className="flex gap-2 border-t border-arcade-border pt-4">
+      <form onSubmit={handleJoinByCode} className="flex flex-wrap gap-2 border-t border-arcade-border pt-4">
         <Input
           type="text"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="LOBBY CODE"
           invalid={status?.error ?? false}
-          className="flex-1 py-1.5 text-xs"
+          className="flex-1 basis-32"
         />
-        <Button type="submit" disabled={busy} className="flex items-center gap-2">
+        <Button type="submit" disabled={busy}>
           <Icon name="search" /> JOIN BY CODE
         </Button>
       </form>

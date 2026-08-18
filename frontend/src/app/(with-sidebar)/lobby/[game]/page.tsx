@@ -14,19 +14,19 @@ export default async function LobbyPage({ params }: PageProps<"/lobby/[game]">) 
   if (!game) notFound();
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col items-center gap-8 px-6 py-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-8 px-4 py-8 sm:px-6 sm:py-12">
       <div className="text-center">
-        <h1 className={`mb-2 font-arcade text-2xl animate-glow-pulse ${accentGlow[game.accent]}`}>
+        <h1 className={`mb-2 font-arcade text-lg animate-glow-pulse sm:text-2xl ${accentGlow[game.accent]}`}>
           {game.title}
         </h1>
-        <p className="font-mono text-xs uppercase tracking-widest text-arcade-muted">
+        <p className="font-mono text-[10px] uppercase tracking-widest text-arcade-muted sm:text-xs">
           {game.tagline}
         </p>
       </div>
 
       <GameLobby game={game.slug} />
 
-      <div className="w-full max-w-sm border border-arcade-border/50 bg-arcade-card px-6 py-4 font-mono text-xs text-arcade-muted">
+      <div className="w-full max-w-sm border border-arcade-border/50 bg-arcade-card px-4 py-4 font-mono text-xs text-arcade-muted sm:px-6">
         <div className="mb-3 font-arcade text-xs">HOW TO PLAY</div>
         <ul className="space-y-1.5 text-foreground/60">
           {game.hints.map((hint) => (

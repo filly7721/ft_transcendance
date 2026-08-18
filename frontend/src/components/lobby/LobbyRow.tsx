@@ -19,11 +19,11 @@ export default function LobbyRow({ lobby, onJoin }: { lobby: Lobby; onJoin: () =
 
   return (
     <li className="border border-arcade-border bg-arcade-card">
-      <div className="flex items-center gap-3 p-3">
+      <div className="flex items-center gap-2 p-3 sm:gap-3">
         <button
           onClick={() => setOpen(!open)}
           aria-label="Toggle lobby details"
-          className="cursor-pointer font-mono text-xs text-arcade-muted transition-colors hover:text-neon-cyan"
+          className="flex h-8 w-6 shrink-0 cursor-pointer items-center justify-center font-mono text-xs text-arcade-muted transition-colors hover:text-neon-cyan"
         >
           {open ? "▾" : "▸"}
         </button>
@@ -35,7 +35,7 @@ export default function LobbyRow({ lobby, onJoin }: { lobby: Lobby; onJoin: () =
           </p>
         </div>
 
-        <span className={`font-mono text-xs ${full ? "text-neon-red" : "text-neon-green"}`}>
+        <span className={`shrink-0 font-mono text-xs ${full ? "text-neon-red" : "text-neon-green"}`}>
           {lobby.players}/{lobby.maxPlayers}
         </span>
         <Button onClick={onJoin} disabled={full}>
