@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Button from "@/components/Button";
+import Input from "@/components/ui/Input";
 import {
   createApiKey,
   fetchActiveApiKey,
@@ -14,9 +15,6 @@ const DEFAULT_NAME = "My API key";
 
 /** Matches the backend DTO: letters, digits, spaces, dots, hyphens, underscores. */
 const NAME_PATTERN = "[\\w .-]+";
-
-const inputClasses =
-  "w-full border border-arcade-border bg-arcade-bg px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:border-neon-cyan";
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -200,7 +198,7 @@ export default function ApiKeyPanel() {
             >
               Label (optional)
             </label>
-            <input
+            <Input
               id="api-key-name"
               type="text"
               value={name}
@@ -209,7 +207,7 @@ export default function ApiKeyPanel() {
               maxLength={40}
               pattern={NAME_PATTERN}
               title="Letters, digits, spaces, dots, - and _ only"
-              className={inputClasses}
+              className="w-full"
             />
           </div>
           <div>
@@ -237,7 +235,7 @@ function Row({
       <dt className="text-[10px] uppercase tracking-wider text-arcade-muted">
         {label}
       </dt>
-      <dd className={`truncate ${mono ? "text-neon-cyan" : "text-foreground"}`}>
+      <dd className={`min-w-0 truncate ${mono ? "text-neon-cyan" : "text-foreground"}`}>
         {value}
       </dd>
     </div>

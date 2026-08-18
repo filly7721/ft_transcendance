@@ -71,19 +71,19 @@ export default function ProfilePage({ params }: { params: Promise<{ login: strin
     }
   }
 
-  if (error) return <div className="px-6 py-8 font-mono text-xs text-neon-red">{error}</div>;
-  if (!profile) return <div className="px-6 py-8 font-mono text-xs text-arcade-muted animate-blink">LOADING...</div>;
+  if (error) return <div className="px-4 py-8 font-mono text-xs text-neon-red sm:px-6">{error}</div>;
+  if (!profile) return <div className="px-4 py-8 font-mono text-xs text-arcade-muted animate-blink sm:px-6">LOADING...</div>;
 
   return (
-    <div className="mx-auto max-w-md px-6 py-8">
-      <div className="flex flex-col items-center gap-4 border border-arcade-border bg-arcade-panel p-6">
+    <div className="mx-auto w-full max-w-md px-4 py-8 sm:px-6">
+      <div className="flex flex-col items-center gap-4 border border-arcade-border bg-arcade-panel p-4 sm:p-6">
         <Avatar login={profile.login} avatarUrl={profile.avatarUrl} className="h-20 w-20" />
-        <h1 className="font-arcade text-lg text-neon-cyan">{profile.displayName}</h1>
+        <h1 className="max-w-full break-words text-center font-arcade text-base text-neon-cyan sm:text-lg">{profile.displayName}</h1>
         <p className="font-mono text-xs text-arcade-muted">@{profile.login}</p>
         <p className="font-mono text-[10px] text-arcade-muted">Joined {new Date(profile.createdAt).toLocaleDateString()}</p>
 
         {/* Stats */}
-        <div className="mt-4 flex gap-6 border-t border-arcade-border pt-4">
+        <div className="mt-4 grid w-full grid-cols-2 gap-4 border-t border-arcade-border pt-4 sm:grid-cols-4">
           <Stat label="GAMES" value={profile.stats.gamesPlayed} />
           <Stat label="WINS" value={profile.stats.wins} color="text-neon-green" />
           <Stat label="LOSSES" value={profile.stats.losses} color="text-neon-red" />
@@ -91,7 +91,7 @@ export default function ProfilePage({ params }: { params: Promise<{ login: strin
         </div>
 
         {/* Action buttons */}
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {isOwnProfile ? (
             <ButtonLink href="/settings">EDIT PROFILE</ButtonLink>
           ) : isFriend ? (

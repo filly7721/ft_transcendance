@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Button from "@/components/Button";
+import Input from "@/components/ui/Input";
 import { FriendAvatar } from "@/components/profile/FriendAvatar";
 import {
   fetchFriends,
@@ -190,12 +191,18 @@ export default function FriendsPage() {
   })) ?? null;
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-8">
-      <h1 className="mb-6 font-arcade text-xl text-neon-cyan">FRIENDS</h1>
+    <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
+      <h1 className="mb-6 font-arcade text-base text-neon-cyan sm:text-xl">FRIENDS</h1>
       {notice && <p className="mb-4 font-mono text-xs text-neon-green">{notice}</p>}
       {error && <p className="mb-4 font-mono text-xs text-neon-red">{error}</p>}
       <form onSubmit={handleSendRequest} className="mb-8 flex gap-2">
-        <input type="text" value={searchLogin} onChange={(e) => setSearchLogin(e.target.value)} placeholder="ENTER LOGIN TO ADD" className="min-w-0 flex-1 border border-arcade-border bg-arcade-bg px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:border-neon-cyan" />
+        <Input
+          type="text"
+          value={searchLogin}
+          onChange={(e) => setSearchLogin(e.target.value)}
+          placeholder="ENTER LOGIN TO ADD"
+          className="flex-1"
+        />
         <Button type="submit">ADD</Button>
       </form>
       {requests && (requests.incoming.length > 0 || requests.outgoing.length > 0) && (
@@ -205,19 +212,23 @@ export default function FriendsPage() {
             <div className="mb-3">
               <p className="mb-2 font-mono text-[10px] uppercase text-neon-yellow">Incoming ({requests.incoming.length})</p>
               {requests.incoming.map((req) => (
-                <div key={req.id} className="mb-2 flex items-center gap-3 border border-arcade-border bg-arcade-card p-2">
+                <div key={req.id} className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 border border-arcade-border bg-arcade-card p-2">
                   <FriendAvatar login={req.login} avatarUrl={req.avatarUrl} size="sm" />
-                  <span className="flex-1 font-mono text-xs">{req.login}</span>
-                  <Button onClick={() => handleAccept(req.id)}>ACCEPT</Button>
-                  <Button onClick={() => handleReject(req.id)}>REJECT</Button>
-                  {/* Reject only clears this request — they can send another.
-                      Block is the one that makes it stop. */}
-                  <Button
-                    onClick={() => handleBlock(req.login)}
-                    className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]"
-                  >
-                    BLOCK
-                  </Button>
+                  {/* basis-32 lets the name hold the first line and the actions
+                      drop below it when the row runs out of width. */}
+                  <span className="min-w-0 flex-1 basis-32 truncate font-mono text-xs">{req.login}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={() => handleAccept(req.id)}>ACCEPT</Button>
+                    <Button onClick={() => handleReject(req.id)}>REJECT</Button>
+                    {/* Reject only clears this request — they can send another.
+                        Block is the one that makes it stop. */}
+                    <Button
+                      onClick={() => handleBlock(req.login)}
+                      className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]"
+                    >
+                      BLOCK
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -228,8 +239,8 @@ export default function FriendsPage() {
               {requests.outgoing.map((req) => (
                 <div key={req.id} className="mb-2 flex items-center gap-3 border border-arcade-border bg-arcade-card p-2">
                   <FriendAvatar login={req.login} avatarUrl={req.avatarUrl} size="sm" />
-                  <span className="flex-1 font-mono text-xs">{req.login}</span>
-                  <span className="font-mono text-[10px] text-arcade-muted">PENDING</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{req.login}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-arcade-muted">PENDING</span>
                 </div>
               ))}
             </div>
@@ -242,18 +253,22 @@ export default function FriendsPage() {
           <ul className="flex flex-col gap-2">
             {friendsWithOnline.map((f) => (
               <li key={f.id} className="flex flex-col gap-2 border border-arcade-border bg-arcade-card p-2">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <FriendAvatar login={f.login} avatarUrl={f.avatarUrl} online={f.online} size="sm" />
-                  <div className="min-w-0 flex-1"><p className="truncate font-mono text-xs">{f.login}</p><p className="truncate font-mono text-[10px] text-arcade-muted">{f.displayName}</p></div>
-                  <a href={`/profile/${f.login}`} className="font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</a>
-                  <a href={`/chat?peer=${f.login}`} className="font-mono text-[10px] text-neon-green hover:underline">MESSAGE</a>
-                  <Button onClick={() => handleUnfriend(f.login)}>UNFRIEND</Button>
-                  <Button
-                    onClick={() => handleBlock(f.login)}
-                    className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]"
-                  >
-                    BLOCK
-                  </Button>
+                  <div className="min-w-0 flex-1 basis-32"><p className="truncate font-mono text-xs">{f.login}</p><p className="truncate font-mono text-[10px] text-arcade-muted">{f.displayName}</p></div>
+                  {/* The four actions wrap as one group, so they line up under
+                      the name instead of one of them being pushed off screen. */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <a href={`/profile/${f.login}`} className="py-1 font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</a>
+                    <a href={`/chat?peer=${f.login}`} className="py-1 font-mono text-[10px] text-neon-green hover:underline">MESSAGE</a>
+                    <Button onClick={() => handleUnfriend(f.login)}>UNFRIEND</Button>
+                    <Button
+                      onClick={() => handleBlock(f.login)}
+                      className="border-neon-red/40 text-neon-red hover:border-neon-red hover:shadow-[0_0_8px_#ff004040]"
+                    >
+                      BLOCK
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex justify-around border-t border-arcade-border/50 pt-1">
                   <span className="font-mono text-[9px] text-arcade-muted">{f.stats?.gamesPlayed ?? 0} GAMES</span>
@@ -279,10 +294,10 @@ export default function FriendsPage() {
             {blocked.map((b) => (
               <li
                 key={b.id}
-                className="flex items-center gap-3 border border-neon-red/30 bg-arcade-card p-2"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 border border-neon-red/30 bg-arcade-card p-2"
               >
                 <FriendAvatar login={b.login} avatarUrl={b.avatarUrl} size="sm" />
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-32">
                   <p className="truncate font-mono text-xs">{b.login}</p>
                   <p className="truncate font-mono text-[10px] text-arcade-muted">
                     Blocked {new Date(b.blockedAt).toLocaleDateString()}
