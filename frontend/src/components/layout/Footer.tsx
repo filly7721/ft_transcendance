@@ -11,8 +11,8 @@ const LEGAL = [
 
 export default function Footer() {
   return (
-    <footer className="border-t border-arcade-border py-4 text-xs font-mono uppercase tracking-widest text-arcade-muted">
-      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-6">
+    <footer className="border-t border-arcade-border py-4 text-[10px] font-mono uppercase tracking-widest text-arcade-muted sm:text-xs">
+      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-4 text-center sm:px-6">
         <span>© 2026 ARCADE — INSERT COIN TO CONTINUE</span>
         <nav className="flex flex-wrap justify-center gap-x-6 gap-y-2">
           {LEGAL.map(({ href, label }) => (

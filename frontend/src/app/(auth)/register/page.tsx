@@ -4,7 +4,7 @@ import RegisterForm from "@/components/auth/RegisterForm";
 export default function RegisterPage() {
   return (
     <>
-      <h1 className="mb-8 text-center font-arcade text-xl glow-yellow animate-glow-pulse">
+      <h1 className="mb-8 text-center font-arcade text-base glow-yellow animate-glow-pulse sm:text-xl">
         NEW PLAYER
       </h1>
 

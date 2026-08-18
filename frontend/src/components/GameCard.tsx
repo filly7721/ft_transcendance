@@ -22,14 +22,14 @@ export default function GameCard({ game }: { game: Game }) {
   return (
     <Link href={gameHref(game)} className="group block">
       <div
-        className={`relative rounded-sm border border-arcade-border bg-arcade-card p-8 transition-all duration-300 ${accent.card}`}
+        className={`relative rounded-sm border border-arcade-border bg-arcade-card p-6 transition-all duration-300 sm:p-8 ${accent.card}`}
       >
         <span className={`absolute right-4 top-4 border px-2 py-0.5 text-xs font-mono ${accent.badge}`}>
           {game.difficulty}
         </span>
 
-        <div className={`mb-6 text-5xl ${accent.glow}`}>{game.icon}</div>
-        <h2 className={`mb-3 font-arcade text-sm ${accent.glow}`}>{game.title}</h2>
+        <div className={`mb-6 text-4xl sm:text-5xl ${accent.glow}`}>{game.icon}</div>
+        <h2 className={`mb-3 pr-20 font-arcade text-xs sm:text-sm ${accent.glow}`}>{game.title}</h2>
         <p className="mb-6 text-xs font-mono uppercase leading-relaxed tracking-wider text-arcade-muted">
           {game.description}
         </p>

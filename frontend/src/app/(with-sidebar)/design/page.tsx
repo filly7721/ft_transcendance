@@ -62,9 +62,9 @@ function Spec({ label, code }: { label: string; code: string }) {
 
 export default function DesignSystemPage() {
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="mx-auto w-full max-w-5xl p-4 sm:p-8">
       <header className="mb-10">
-        <h1 className="mb-3 font-arcade text-lg glow-cyan">DESIGN SYSTEM</h1>
+        <h1 className="mb-3 font-arcade text-base glow-cyan sm:text-lg">DESIGN SYSTEM</h1>
         <p className="max-w-2xl font-mono text-xs leading-relaxed text-arcade-muted">
           ARCADE is styled as a CRT arcade cabinet: a near-black background, six
           neon accents, a pixel display face, and a scanline overlay across the
@@ -140,7 +140,7 @@ export default function DesignSystemPage() {
             Icons inherit the current text colour, so they take the neon palette
             exactly like text does.
           </p>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-7">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:grid-cols-7">
             {iconNames.map((name) => (
               <div
                 key={name}

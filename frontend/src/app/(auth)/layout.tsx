@@ -6,7 +6,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   return (
     <main className="flex flex-1">
       <AuthHero />
-      <div className="mx-auto flex w-full max-w-md flex-col justify-center px-8 py-16 lg:mx-0 lg:w-[26rem] lg:border-l lg:border-arcade-border lg:bg-arcade-panel/40">
+      <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-10 sm:px-8 sm:py-16 lg:mx-0 lg:w-[26rem] lg:border-l lg:border-arcade-border lg:bg-arcade-panel/40">
         {children}
       </div>
     </main>

@@ -27,10 +27,10 @@ export default function LegalDoc({
   children,
 }: Props) {
   return (
-    <main className="min-w-0 flex-1 px-6 py-12">
+    <main className="min-w-0 flex-1 px-4 py-10 sm:px-6 sm:py-12">
       <article className="mx-auto flex max-w-3xl flex-col gap-10">
         <header className="flex flex-col gap-4 border-b border-arcade-border pb-8">
-          <h1 className="font-arcade text-lg leading-relaxed glow-cyan">
+          <h1 className="font-arcade text-base leading-relaxed glow-cyan sm:text-lg">
             {title}
           </h1>
           <p className="font-mono text-[10px] uppercase tracking-widest text-arcade-muted">
