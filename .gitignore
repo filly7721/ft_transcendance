@@ -27,3 +27,6 @@ extras/
 # Agent instruction files (Next.js regenerates AGENTS.md)
 AGENTS.md
 CLAUDE.md
+
+# Certificates extracted from the nginx container for local trust
+*.pem

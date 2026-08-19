@@ -77,7 +77,8 @@ backend entrypoint before it starts listening, so a first run reaches the curren
 schema on its own.
 
 Open **`https://localhost`**. The certificate is self-signed and generated on first
-boot, so accept the browser warning once.
+boot, so accept the browser warning once. **Safari needs one extra step**, see the note
+under the browsers module below.
 
 ### Deployment architecture
 
@@ -581,7 +582,30 @@ Browser-specific issues found and fixed:
 - **Firefox** renders the pixel icons with anti-aliasing unless `shape-rendering` is
   set explicitly, which softened the whole design language.
 
-UI and behaviour are consistent across all four. No known limitations remain.
+UI and behaviour are consistent across all four.
+
+**Known limitation, Safari and the self-signed certificate.** Safari does not apply a
+page-level certificate exception to WebSocket connections; it consults the system trust
+store only. So clicking through the warning loads the page but every socket is still
+refused, which leaves the games, chat and presence dead while the UI looks fine. The
+certificate has to be trusted once:
+
+```bash
+docker compose cp nginx:/certs/cert.pem ./arcade-cert.pem
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain ./arcade-cert.pem
+```
+
+Then restart Safari, which caches the failed TLS decision for the origin. Chrome, Firefox
+and Edge carry the page exception across to `wss://` and need nothing. The trust is bound
+to that one certificate, so changing `PUBLIC_ORIGIN` regenerates it and it has to be
+trusted again.
+
+On **iOS** every browser is WebKit underneath, including Chrome and Firefox, so all of
+them refuse the socket and trusting the certificate there means installing a
+configuration profile and enabling it under Settings, General, About, Certificate Trust
+Settings. Supplying a CA-signed certificate instead of the generated one removes this
+everywhere: nginx reads whatever is in the `certs` volume and needs no config change.
 
 ## Individual Contributions
 
