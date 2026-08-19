@@ -13,8 +13,13 @@ import {
 /** Label used when the field is left blank — a key still needs a name. */
 const DEFAULT_NAME = "My API key";
 
-/** Matches the backend DTO: letters, digits, spaces, dots, hyphens, underscores. */
-const NAME_PATTERN = "[\\w .-]+";
+/** Matches the backend DTO: letters, digits, spaces, dots, hyphens, underscores.
+ *
+ *  The hyphen is escaped because a `pattern` attribute is compiled with the `v`
+ *  flag, under which `-` is a syntax character anywhere inside a character
+ *  class, trailing position included. Unescaped, the browser throws "Invalid
+ *  character in character class" and drops the constraint altogether. */
+const NAME_PATTERN = "[\\w .\\-]+";
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {

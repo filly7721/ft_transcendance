@@ -119,12 +119,15 @@ export default function SettingsPage() {
         <h2 className="mb-3 font-arcade text-[10px] text-arcade-muted">PROFILE</h2>
 
         <label className="mb-1 block font-mono text-[10px] uppercase text-arcade-muted">Login (username)</label>
+        {/* The hyphen in `pattern` is escaped: a bare `-` in a character class
+            is a syntax error under the `v` flag the browser compiles the
+            attribute with. Same reason as NAME_PATTERN in ApiKeyPanel. */}
         <Input
           type="text"
           value={login}
           onChange={(e) => setLogin(e.target.value)}
           maxLength={20}
-          pattern="[a-zA-Z0-9_-]+"
+          pattern="[a-zA-Z0-9_\-]+"
           title="Letters, digits, _ and - only"
           className="mb-3 w-full"
         />
