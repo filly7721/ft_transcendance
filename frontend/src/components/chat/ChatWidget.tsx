@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import { ChatPanel } from "./ChatPanel";
 
 /**
  * Floating chat widget — opens/closes on click, available on every page inside
  * the (with-sidebar) route group.
+ *
+ * Not rendered on /chat, which already shows a full-size ChatPanel: a second
+ * one means two chat sockets, two sets of fetches and two panels racing to
+ * publish the unread total, and the gateway caps sockets per IP.
  *
  * The open panel was a fixed 450×500 box, which is wider than a phone screen.
  * From `sm` up it keeps those dimensions; below that it becomes a sheet inset
@@ -18,6 +23,9 @@ import { ChatPanel } from "./ChatPanel";
  */
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  if (pathname === "/chat") return null;
 
   if (!open) {
     return (

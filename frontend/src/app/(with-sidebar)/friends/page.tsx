@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import Button from "@/components/Button";
 import Input from "@/components/ui/Input";
 import { FriendAvatar } from "@/components/profile/FriendAvatar";
@@ -259,8 +260,11 @@ export default function FriendsPage() {
                   {/* The four actions wrap as one group, so they line up under
                       the name instead of one of them being pushed off screen. */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <a href={`/profile/${f.login}`} className="py-1 font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</a>
-                    <a href={`/chat?peer=${f.login}`} className="py-1 font-mono text-[10px] text-neon-green hover:underline">MESSAGE</a>
+                    {/* next/link, not a bare anchor: these reloaded the whole
+                        document, and MESSAGE dropped the chat socket and the
+                        conversation list on the way to the chat page. */}
+                    <Link href={`/profile/${encodeURIComponent(f.login)}`} className="py-1 font-mono text-[10px] text-neon-cyan hover:underline">PROFILE</Link>
+                    <Link href={`/chat?peer=${encodeURIComponent(f.login)}`} className="py-1 font-mono text-[10px] text-neon-green hover:underline">MESSAGE</Link>
                     <Button onClick={() => handleUnfriend(f.login)}>UNFRIEND</Button>
                     <Button
                       onClick={() => handleBlock(f.login)}

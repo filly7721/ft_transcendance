@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import Button from "@/components/Button";
 import Input from "@/components/ui/Input";
 import { FriendAvatar } from "@/components/profile/FriendAvatar";
@@ -11,7 +12,9 @@ import {
   type Conversation,
   type Message,
 } from "@/lib/chat";
+import { fetchFriends, type Friend } from "@/lib/friends";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useNotifications } from "@/components/NotificationProvider";
 
 /**
  * Apply a message to the conversation list locally, without a REST re-fetch:
@@ -49,6 +52,123 @@ function applyMessageToConversations(
 }
 
 /**
+ * One row of the chat list. Three things collapse into this shape: a
+ * conversation, a friend you have never messaged, and whoever `?peer=` named.
+ */
+type ChatListRow = {
+  peerLogin: string;
+  peerAvatarUrl: string | null;
+  /** Null for a peer with no history — there is no last message to preview. */
+  lastMessage: Conversation["lastMessage"] | null;
+  unreadCount: number;
+  /** Undefined when the peer is not (or is no longer) a friend, which is what
+   *  makes FriendAvatar leave the presence dot off entirely. */
+  online?: boolean;
+};
+
+/**
+ * The list the panel renders: conversations, then friends you have never
+ * messaged.
+ *
+ * The server builds /chat/conversations purely from message rows, so a friend
+ * you have not written to cannot appear in it — which used to mean there was
+ * nothing to click and no way to start a conversation at all. Merging the
+ * friends list in fixes that, and doing it here rather than in state means the
+ * next fetchConversations() supersedes a placeholder on its own: the row is
+ * keyed by login, so a peer who gains real history simply stops being
+ * generated as a placeholder. Nothing to reconcile, nothing to de-duplicate.
+ *
+ * Sorted by login, never by presence: a friend coming online must not make the
+ * list reorder under the reader's finger.
+ */
+function mergeChatRows(
+  conversations: Conversation[],
+  friends: Friend[],
+  onlineFriendIds: ReadonlySet<string>,
+  activePeer: string | null,
+): { chats: ChatListRow[]; friendsOnly: ChatListRow[] } {
+  const friendByLogin = new Map(friends.map((f) => [f.login, f]));
+  // The REST flag was true at fetch time; the Set carries live presence. Union
+  // of the two, exactly as the friends page does it.
+  const isOnline = (f: Friend) => f.online || onlineFriendIds.has(f.id);
+
+  const chats: ChatListRow[] = conversations.map((c) => {
+    const friend = friendByLogin.get(c.peerLogin);
+    return {
+      peerLogin: c.peerLogin,
+      peerAvatarUrl: c.peerAvatarUrl,
+      lastMessage: c.lastMessage,
+      unreadCount: c.unreadCount,
+      online: friend ? isOnline(friend) : undefined,
+    };
+  });
+
+  const chatted = new Set(conversations.map((c) => c.peerLogin));
+  const friendsOnly: ChatListRow[] = friends
+    .filter((f) => !chatted.has(f.login))
+    .sort((a, b) =>
+      a.login.localeCompare(b.login, undefined, { sensitivity: "base" }),
+    )
+    .map((f) => ({
+      peerLogin: f.login,
+      peerAvatarUrl: f.avatarUrl,
+      lastMessage: null,
+      unreadCount: 0,
+      online: isOnline(f),
+    }));
+
+  // Whoever `?peer=` named while being neither: a hand-typed login, or someone
+  // unfriended since the thread was opened. Listing them is what stops the
+  // narrow layout's back button stranding an open thread with no way back to it.
+  if (activePeer && !chatted.has(activePeer) && !friendByLogin.has(activePeer)) {
+    chats.unshift({
+      peerLogin: activePeer,
+      peerAvatarUrl: null,
+      lastMessage: null,
+      unreadCount: 0,
+    });
+  }
+
+  return { chats, friendsOnly };
+}
+
+/** A row in the list. Extracted because the list renders it in two groups. */
+function ChatListButton({
+  row,
+  active,
+  onSelect,
+}: {
+  row: ChatListRow;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`flex w-full items-center gap-2 border-b border-arcade-border/50 px-2 py-3 text-left transition-colors hover:bg-arcade-card @lg:py-2 ${active ? "bg-arcade-card" : ""}`}
+    >
+      <FriendAvatar
+        login={row.peerLogin}
+        avatarUrl={row.peerAvatarUrl}
+        online={row.online}
+        size="sm"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-mono text-[10px]">{row.peerLogin}</p>
+        <p className="truncate font-mono text-[9px] text-arcade-muted">
+          {row.lastMessage ? row.lastMessage.content : "NO MESSAGES YET"}
+        </p>
+      </div>
+      {row.unreadCount > 0 && (
+        <span className="bg-neon-cyan px-1 font-arcade text-[8px] text-arcade-bg">
+          {row.unreadCount}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
  * Shared chat panel — used by both the /chat page (full size) and the
  * ChatWidget (floating). Shows a conversation list on the left and the
  * active message thread on the right.
@@ -66,7 +186,12 @@ function applyMessageToConversations(
  */
 export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   const { user } = useAuth();
+  const { onlineFriendIds } = useNotifications();
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  // Every friend belongs in the list, not just the ones with history. Read once
+  // per mount: presence arrives through onlineFriendIds, so there is nothing to
+  // re-fetch for, and re-fetching on events is what tripped the rate limiter.
+  const [friends, setFriends] = useState<Friend[] | null>(null);
   const [activePeer, setActivePeer] = useState<string | null>(initialPeer ?? null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -125,6 +250,15 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
       .catch((e) => setError(e.message));
   }, []);
 
+  // Friends load separately from conversations, so a failure here degrades to
+  // the conversations-only list instead of blanking it. /friends has its own
+  // rate-limit bucket, so this costs the chat routes nothing.
+  useEffect(() => {
+    fetchFriends()
+      .then(setFriends)
+      .catch(() => setFriends([]));
+  }, []);
+
   // WebSocket connection — established once per mount.
   useEffect(() => {
     const socket = createChatSocket();
@@ -180,6 +314,19 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     };
   }, [upsertConversation]);
 
+  // The panel outlives a client-side navigation between two ?peer= URLs (the
+  // profile page links with next/link, and so does browser back/forward), so
+  // activePeer cannot be initial state alone. Derived while rendering for the
+  // same reason as the reset below.
+  const [shownInitialPeer, setShownInitialPeer] = useState(initialPeer);
+  if (shownInitialPeer !== initialPeer) {
+    setShownInitialPeer(initialPeer);
+    // Only ever opens a thread, never closes one. Pressing back inside the
+    // panel leaves ?peer= in the URL, and re-opening from it would make the
+    // panel's own back button dead.
+    if (initialPeer) setActivePeer(initialPeer);
+  }
+
   // Switching threads clears the old messages and drops the peer's unread
   // badge (opening a thread reads it). Done while rendering, not in an
   // effect: an effect would leave the previous conversation's messages on
@@ -188,6 +335,9 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
   if (shownPeer !== activePeer) {
     setShownPeer(activePeer);
     setMessages([]);
+    // Every friend is clickable now, so a failed thread (e.g. the 403 from
+    // someone who unfriended you) must not leave its error under the next one.
+    setError(null);
     // The old peer's "TYPING..." must not carry over onto the new thread. A
     // timer still pending from them only sets this false again — harmless.
     setTyping(false);
@@ -264,6 +414,13 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
     socketRef.current?.emit("chat:typing", { receiverLogin: activePeer });
   }, [activePeer]);
 
+  // Derived, not stored: see mergeChatRows. Null until both loads are in, so
+  // the list does not visibly reorder as the second one lands.
+  const rows =
+    conversations && friends
+      ? mergeChatRows(conversations, friends, onlineFriendIds, activePeer)
+      : null;
+
   return (
     <div className="@container flex h-full min-h-0 border border-arcade-border bg-arcade-panel">
       {/* Conversation list — the whole panel while nothing is open, a fixed
@@ -274,27 +431,46 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
         }`}
       >
         <p className="sticky top-0 bg-arcade-panel px-3 py-2 font-arcade text-[10px] text-arcade-muted">CHATS</p>
-        {conversations === null ? (
+        {rows === null ? (
           <p className="px-3 py-4 font-mono text-[10px] text-arcade-muted animate-blink">LOADING...</p>
-        ) : conversations.length === 0 ? (
-          <p className="px-3 py-4 font-mono text-[10px] text-arcade-muted">NO CHATS</p>
-        ) : (
-          conversations.map((c) => (
-            <button
-              key={c.peerLogin}
-              onClick={() => setActivePeer(c.peerLogin)}
-              className={`flex w-full items-center gap-2 border-b border-arcade-border/50 px-2 py-3 text-left transition-colors hover:bg-arcade-card @lg:py-2 ${activePeer === c.peerLogin ? "bg-arcade-card" : ""}`}
+        ) : rows.chats.length === 0 && rows.friendsOnly.length === 0 ? (
+          /* Empty now means no friends at all, so it says so rather than the
+             old "NO CHATS", and points at the only thing that fixes it. */
+          <div className="px-3 py-4">
+            <p className="font-mono text-[10px] text-arcade-muted">NO FRIENDS YET</p>
+            <Link
+              href="/friends"
+              className="mt-1 block font-mono text-[10px] text-neon-cyan hover:underline"
             >
-              <FriendAvatar login={c.peerLogin} avatarUrl={c.peerAvatarUrl} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-mono text-[10px]">{c.peerLogin}</p>
-                <p className="truncate font-mono text-[9px] text-arcade-muted">{c.lastMessage.content}</p>
-              </div>
-              {c.unreadCount > 0 && (
-                <span className="bg-neon-cyan px-1 font-arcade text-[8px] text-arcade-bg">{c.unreadCount}</span>
-              )}
-            </button>
-          ))
+              ADD FRIENDS TO CHAT
+            </Link>
+          </div>
+        ) : (
+          <>
+            {rows.chats.map((row) => (
+              <ChatListButton
+                key={row.peerLogin}
+                row={row}
+                active={activePeer === row.peerLogin}
+                onSelect={() => setActivePeer(row.peerLogin)}
+              />
+            ))}
+            {/* Not sticky: the CHATS header above it is, and two sticky
+                elements in one scroll container overlap. */}
+            {rows.chats.length > 0 && rows.friendsOnly.length > 0 && (
+              <p className="border-b border-arcade-border/50 px-3 py-1 font-arcade text-[10px] text-arcade-muted">
+                FRIENDS
+              </p>
+            )}
+            {rows.friendsOnly.map((row) => (
+              <ChatListButton
+                key={row.peerLogin}
+                row={row}
+                active={activePeer === row.peerLogin}
+                onSelect={() => setActivePeer(row.peerLogin)}
+              />
+            ))}
+          </>
         )}
       </div>
 
@@ -325,6 +501,13 @@ export function ChatPanel({ initialPeer }: { initialPeer?: string }) {
                   </div>
                 </div>
               ))}
+              {/* A friend with no history returns an empty thread, which
+                  otherwise reads as a broken panel rather than a new chat. */}
+              {messages.length === 0 && !typing && (
+                <p className="mt-4 text-center font-mono text-[10px] text-arcade-muted">
+                  NO MESSAGES YET. SAY HI.
+                </p>
+              )}
               {typing && <p className="font-mono text-[10px] text-arcade-muted animate-blink">TYPING...</p>}
               <div ref={messagesEndRef} />
             </div>
